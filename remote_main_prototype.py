@@ -2,18 +2,13 @@ import requests
 import json
 from pwn import remote, process, u32, p32, p64, flat, log
 
-remoteIp = '192.168.0.155'
-remotePort = 9000
-conn = remoteIp
-port = remotePort
+conn = '192.168.0.155'
+port = 9000
 
 outputLines_b = 6
 outputLines_a = 2
-arch = 4
 
-leakNo = 30
 leakDelim = b"Welcome"
-writeToStack = False
 
 static = "./itc_app"
 
