@@ -95,14 +95,8 @@ def get_libc_symbol_offsets(libc_id):
 
 
 def skip_lines(proc, lines):
-    """
-    Skips a specified number of lines in the process output.
-    """
     for _ in range(lines):
-        try:
-            proc.recvline()
-        except EOFError:
-            pass
+        proc.recvline(timeout=0.05)
 
 
 def handle_reverse_shell():
