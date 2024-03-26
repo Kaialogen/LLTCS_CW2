@@ -1,5 +1,6 @@
 import struct
-from pwn import *
+from pwn import process, ELF, context
+
 
 # Set the binary context
 binary_path = './itc_app'
