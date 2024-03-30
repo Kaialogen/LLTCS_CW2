@@ -1,6 +1,4 @@
 """
-Exploits a buffer overflow in 'itc_app' by sending payloads to leak libc addresses and execute a shell.
-
 References:
 - https://docs.pwntools.com/en/stable/
 - https://ir0nstone.gitbook.io/notes/types/stack/aslr/ret2plt-aslr-bypass
@@ -27,11 +25,6 @@ def construct_payload(buffer_size, *addresses):
 
 
 def exploit(binary_path):
-    """
-    Executes the buffer overflow exploit against a binary specified by `binary_path`.
-
-    :param binary_path: Path to the vulnerable binary.
-    """
     context.binary = ELF(binary_path)
     proc = process()
 
