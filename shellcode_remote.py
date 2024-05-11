@@ -1,4 +1,14 @@
-#Reference material: https://man7.org/linux/man-pages/man2/mprotect.2.html
+"""
+Reference material: 
+https://man7.org/linux/man-pages/man2/mprotect.2.html
+https://libc.rip/
+https://stacklikemind.io/ret2libc-aslr
+https://github.com/niklasb/libc-database/tree/master/searchengine
+https://codingvision.net/bypassing-aslr-dep-getting-shells-with-pwntools
+https://nobinpegasus.github.io/blog/a-beginners-guide-to-pwntools/
+https://exploit-notes.hdks.org/exploit/binary-exploitation/cheatsheet/pwntools-cheat-sheet/
+https://docs.pwntools.com/en/stable/
+"""
 
 import requests
 import json
