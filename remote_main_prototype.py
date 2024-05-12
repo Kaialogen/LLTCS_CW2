@@ -7,6 +7,7 @@ https://codingvision.net/bypassing-aslr-dep-getting-shells-with-pwntools
 https://nobinpegasus.github.io/blog/a-beginners-guide-to-pwntools/
 https://exploit-notes.hdks.org/exploit/binary-exploitation/cheatsheet/pwntools-cheat-sheet/
 https://docs.pwntools.com/en/stable/
+https://ir0nstone.gitbook.io/notes
 """
 
 
